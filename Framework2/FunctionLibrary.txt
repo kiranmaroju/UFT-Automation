@@ -1,0 +1,3018 @@
+Print "Start:"&Now()
+myLocale = SetLocale(16393) ' English-India
+
+Dim Env
+'Env = Parameter("Env")
+Interface = "SIEBEL"
+EBU_CBU = "EBU"
+
+Dim AlmRunName, AlmRunId, RequestId, RequestedBy, CustomerType, ActionResult, screenshotIter, TestExecLogFolder
+Dim Errortext, Folder, StartTime, EndTime
+screenshMoveFirstotIter = -1
+
+On Error Resume Next
+'Env = Parameter("Env")
+'RequestId = Parameter("RequestId")
+'RequestedBy = Parameter("RequestedBy")
+'Request
+filterMode = Reporter.Filter
+Reporter.Filter = 3
+Env = TestArgs("Env")
+RequestId = TestArgs("RequestId")
+RequestedBy = TestArgs("RequestedBy")
+SalesCode = TestArgs("SalesCode")
+'If Err.Number <> 0 Then
+''	Request
+'	Errortext = "Env, RequestId or RequestedBy test parameter not exist"
+'	Reporter.ReportEvent micFail, "Env, RequestId or RequestedBy test parameter not exist", ""
+''	EndRequest False
+'End If
+'On Error Goto 0
+If RequestedBy = "" or IsEmpty(RequestedBy) Then RequestedBy = "OTO"
+If Env = "" or IsEmpty(Env) Then Env = "CBU_SAT" ''
+Reporter.Filter = filterMode
+Request
+
+StartTime = FormatDateTime(Now)
+'Folder = CreateFolder("C:\Otomasyon\TestExectionLog")
+Folder = CreateFolder("\\172.28.138.240\Setups\Otomasyon")
+TestExecLogFolder = CreateFolder(Folder &"\TestExectionLog")
+TestExecLogFolder = CreateFolder(TestExecLogFolder &"\"& Environment("TestName"))
+TestExecLogFolder = CreateFolder(TestExecLogFolder &"\"& RequestId)
+
+Print "End:"&Now()
+
+Sub Request
+	Dim execDate, query, sqlResult, d, m, i
+	
+	If QCUtil.IsConnected Then
+		On Error Resume Next
+		AlmRunId = QCUtil.CurrentRun.ID
+		AlmRunName = QCUtil.CurrentRun.Name
+		Environment.Value("AlmRunId")=AlmRunId
+		Environment.Value("AlmRunName")=AlmRunName
+'		If IsEmpty(AlmRunName) Then AlmRunName = "''"
+'			
+'		End If
+'		If Err.Number <> 0 Then
+'			AlmRunName = Err.Description
+'		End If
+		On Error Goto 0
+	End If
+		
+	If RequestId = "" or IsEmpty(RequestId) Then
+'		execDate = Replace(CStr(Now), ".", "/")
+'		toDate = "to_date('"& execDate &"','DD/MM/YYYY HH24:MI:SS')"
+'		d = Day(Date)
+'		If len(d) = 1 Then d = "0"& d
+'		
+'		m = Month(Date)
+'		If len(m) = 1 Then m = "0"& m
+
+		execDate = Day(Date) &"/"& Month(Date) &"/"& Year(Date) & " " & Time
+'		execDate = "to_date('"& CStr(Now) &"','DD/MM/YYYY HH24:MI:SS')"
+		execDate = "to_date('"& execDate &"','DD/MM/YYYY HH24:MI:SS')"
+		query = "INSERT INTO DHB_REQUESTS (TEST_NAME, REQUESTED_BY, ENV, REQUESTED_DATE, EXECUTION_DATE, STATUS_ID, EXEC_STATUS, HOST, ALM_RUN_ID, ALM_RUN_NAME)" &_ 
+		" values ('"& Environment.Value("TestName") &"','"& RequestedBy &"', '"& Env &"',"& execDate &","& execDate &", 3, 'Started','"& Environment.Value("LocalHostName") &"','"& AlmRunId & "','"& AlmRunName &"')"
+		sqlResult = DBVTASExecute(query)
+		If Not sqlResult Then
+			ExitTest
+		End If
+		RequestId = DBVTASSelect("select REQUEST_ID from DHB_REQUESTS where REQUESTED_DATE = "& execDate &" and EXECUTION_DATE = "& execDate &" and TEST_NAME = '"& Environment.Value("TestName") &"'")
+		
+'		query = ""
+'		Set qtApp = CreateObject("QuickTest.Application")
+'		Set params = qtApp.Test.ParameterDefinitions.GetParameters
+'		paramCount = params.Count
+'		For i = 1 To paramCount Step 1
+'			If query = "" Then 
+'				query = "PARAM_NAME_"& i &"='"& params.Item(i).Name &"', PARAM_VALUE_"& i &"='"& params.Item(i).Value &"'"
+'			Else
+'				query = query &", PARAM_NAME_"& i &"='"& params.Item(i).Name &"', PARAM_VALUE_"& i &"='"& params.Item(i).Value &"'"
+'			End If
+'		Next
+'		If query <> "" Then
+'			query = "update DHB_REQUESTS set "& query &" where REQUEST_ID = '"& RequestId &"' and ENV = '"& Env &"'"
+'			DBVTASExecute query
+'		End If
+'		Set qtApp = Nothing
+'		Set params = Nothing
+	Else
+		query = "update DHB_REQUESTS set ALM_RUN_ID = '"& AlmRunId &"', ALM_RUN_NAME = '"& AlmRunName &"', ENV = '"& Env &"' where REQUEST_ID = '"& RequestId &"'"
+		DBVTASExecute query
+	End If
+	
+	If RequestId = "" or IsEmpty(RequestId) Then
+		Reporter.ReportEvent micFail, "RequestId is empty", ""
+		ExitTest
+	End If	
+End Sub
+Sub EndRequest(ActionResult)
+	Dim status, s, query
+	Select Case Reporter.RunStatus
+		Case 0 
+			status = "Pass"
+		Case 1 
+			status = "Fail"
+		Case 2 
+			status = "Done"
+		Case 3 
+			status = "Warning"
+	End Select
+	If ActionResult Then 'or IsEmpty(ActionResult)
+		If status = "Fail" Then
+			status = "Completed: "& status
+		End If
+'	Else
+'		status = "Failed: "& status
+	End If
+	
+	EndTime = FormatDateTime(Now)
+	s = datediff("s",StartTime, EndTime)
+	Errortext = Replace(Errortext, "'", "''")
+
+	query =  "update DHB_REQUESTS set RUN_DURATION = "& datediff("s",StartTime,EndTime) &", EXEC_STATUS = '"& status &"', STATUS_ID = '6', RUN_ERROR = '"& Errortext &"' where REQUEST_ID = '"& RequestId &"' and ENV = '"& Env &"'"
+	'TimeString(s)
+	DBVTASExecute query
+End Sub
+Function GetMsisdnBackup(customerType, reqBy)
+	Dim tbl, msisdn
+
+	If reqBy = "" or IsEmpty(reqBy) Then reqBy = RequestedBy
+	
+	If CustomerType = "EBU" Then
+		tbl = "EBU_MOBILE_LINES"
+	ElseIf CustomerType = "CBU" Then
+		tbl = "CBU_MOBILE_LINES"
+	End If
+	query = "select * from "& tbl &" where USED = 'N' and created ='Y' and env='"& Env &"' and requested_by = '"& reqBy &"' and arayuz = 'SIEBEL'"
+'	query = "select * from EBU_MOBILE_LINES where gsm_no is null"
+	
+	Set recSet = CreateObject("ADODB.Recordset")
+	DBVTASRecordSet query, recSet
+	If recSet is Nothing Then
+		SetError Environment.Value("ActionName") &": sql query error: "& query
+		Reporter.ReportEvent micFail, "Sql query error", query
+		GetMsisdn = Empty
+		Exit Function
+	End If
+	If recSet.EOF Then
+		SetError Environment.Value("ActionName") &": sql query result is empty: "& query
+		Reporter.ReportEvent micFail, "Sql query result is empty", query
+		GetMsisdn = Empty
+		Exit Function
+	End If
+		
+	msisdn = recSet.Fields("GSM_NO").Value
+	If IsEmpty(msisdn) or IsNull(msisdn) Then
+		SetError "Gsm No empty or null: "& query
+		Reporter.ReportEvent micFail, "Gsm No empty or null", query
+		
+		query = "update "& tbl &" set created='N' where REQUESTED_BY = '"& recSet.Fields("REQUESTED_BY").Value &"' and env='"& ENV &"' and request_id = '"& recSet.Fields("REQUEST_ID").Value &"'"
+		DBVTASExecute query
+		
+		GetMsisdn = Empty
+		Exit Function
+	End If
+	
+	query = "update "& tbl &" set used='Y' where gsm_no='"& msisdn &"' and env='"& ENV &"'"
+	DBVTASExecute query
+	
+	Set GetMsisdn = recSet
+End Function
+
+Function CustomerDetails
+    setlocale(1033)'US
+'    setlocale(2057)'UK
+	Phone = "905423451213"
+	WorkPhone = "905423451213"
+	IssuedDate =	CStr(date - 1095)
+	ExpirationDate = CStr(date + 1095)
+	AddressType =	"Home"
+	City =	"İSTANBUL"
+	Province =	"ÜSKÜDAR"
+	Neighborhood =	"ALTUNİZADE"
+	StreetName =	"AKAGÜNDÜZ SOKAK"
+	AvenueBoulevard =	"AZİZİYE CADDESİ"
+	Apartment =	"1"
+	Blok =	"GURUR SİTESİ"
+	FlatNumber =	"1"
+	MobilePhone = "905425772397"
+
+'	If 	Parameter("Foreign") = "Y" or (	Parameter("Foreign") <> "Türkiye" and 	Parameter("Foreign") <> "N") Then
+'		If 	Parameter("Foreign") = "Y" Then
+'			Citizenship = "Amerika Birleşik Devletleri"
+'		End If
+'		TC_NO = ""
+'		FirstName = "EBU" & RequestId '& Parameter("CustomerId")
+'		LastName =	"EBU" & RequestId'& Parameter("CustomerId")
+'		Gender =	"Male"
+'		FatherName =	"Joe"
+'		PlaceofBirth =	"Atlanta"
+'		DateofBirth =	"21.05.1987"
+'		MotherMaidenName =	"Anderson"
+'		DocumentType =	"Pasaport"
+'		Randomize 
+'		IdNumber =	CStr(Int((999999999-100000000+1)*Rnd+100000000))
+'		Issuer =	"Boston"
+'		Citizenship =	"Amerika Birleşik Devletleri"
+'		
+'		CustomerDetails = true
+'	Else
+		Citizenship = "Türkiye"				
+		sysName = "TIBCO"
+		envName = ENV
+		exec = False
+		For i = 1 To 100 Step 1
+			sqlQuery = "select TC_ID from PROVISIONING_MGNT.MERNIS_CUSTOMER_INFO where length(TC_ID) = 1"		
+			sysName = "TIBCO"
+			If ENV = "CBU_SAT_ENU" Then
+				envName = "TBCEBUAT"
+			End If
+			TC_NO = DBSelect(sysName, envName, sqlQuery)
+			
+			If TC_NO = "" or IsEmpty(TC_NO) Then
+				reporter.ReportEvent micFail, "Müşteri bilgileri çekilemedi: TIBCO/DB/"& ENV, sqlQuery
+				SetError "Müşteri bilgileri çekilemedi: TIBCO/DB/"& ENV &" sqlQuery = "& sqlQuery
+				MusteriBilgileri = False
+			Else 
+				TC_NO = GenerateTCNO(TC_NO)
+				Reporter.ReportEvent micDone, "Checking TC No", TC_NO
+			End If
+			
+			sqlQuery = "select count(*) from PROVISIONING_MGNT.MERNIS_CUSTOMER_INFO where TC_ID = '"& TC_ID &"'"
+			tcMernisCount = DBSelect(sysName, envName, sqlQuery)
+			If tcMernisCount = "0" Then
+			
+				pname = "EBU"& TC_NO
+				FirstName = pname
+				LastName = pname
+				FatherName = pname
+				PlaceofBirth = "BURSA"
+				DateofBirth = "05/18/1985"
+				MotherMaidenName = pname
+				Gender = "Male"
+				
+				sqlQuery = "insert into PROVISIONING_MGNT.MERNIS_CUSTOMER_INFO ("&_
+					"TC_ID,"&_
+					"BIRTHPLACE_CODE,"&_
+					"NAME,"&_
+					"SURNAME,"&_
+					"SEX,"&_
+					"FATHER_NAME,"&_
+					"MOTHER_NAME,"&_
+					"DATE_OF_BIRTH_YEAR,"&_
+					"DATE_OF_BIRTH_MONTH,"&_
+					"DATE_OF_BIRTH_DAY,"&_
+					"PLACE_OF_BIRTH,"&_
+					"STATUS,"&_
+					"MARITAL_STATUS,"&_
+					"RELIGION,"&_
+					"DATE_OF_DEATH_YEAR,"&_
+					"DATE_OF_DEATH_MONTH,"&_
+					"DATE_OF_DEATH_DAY,"&_
+					"PROVINCE_CODE,"&_
+					"PROVINCE_NAME,"&_
+					"COUNTY_CODE,"&_
+					"COUNTY_NAME,"&_
+					"VOLUME_CODE,"&_
+					"VOLUME_NAME,"&_
+					"FAMILY_SEQUENCE_NUMBER,"&_
+					"PERSON_SEQUENCE_NUMBER,"&_
+					"ERROR_CODE,"&_
+					"ERROR_DESCRIPTION,"&_
+					"GENERAL_DESCRIPTION"&_
+					")"&_
+				"values ("&_
+					"'"& TC_NO &"',"&_
+					"'1542',"&_
+					"'"& FirstName &"',"&_
+					"'"& LastName &"',"&_
+					"'"& Gender &"',"&_
+					"'"& FatherName &"',"&_
+					"'"& MotherMaidenName &"',"&_
+					"'1985',"&_
+					"'05',"&_
+					"'18',"&_
+					"'"& PlaceofBirth &"',"&_
+					"'Open',"&_
+					"'Single',"&_
+					"null,"&_
+					"null,"&_
+					"null,"&_
+					"null,"&_
+					"'1',"&_
+					"'ANTALYA',"&_
+					"'1101',"&_
+					"'ABANA',"&_
+					"'1',"&_
+					"'MERKEZ',"&_
+					"'10',"&_
+					"'8',"&_
+					"null,"&_
+					"null,"&_
+					"'Otomasyon')"
+
+
+
+				exec = DBExecute(sysName, envName, sqlQuery)
+				If Not exec Then
+					SetError "Mernis insert fail. "& sysName &"/"& envName &"/"& sqlQuery &": "& sqlQuery
+					Reporter.ReportEvent micFail, "Mernis insert", sysName &"/"& envName &"/"& sqlQuery &": "& sqlQuery
+					ExitAction (False)
+				End If
+				Exit For
+			End If
+		Next
+		If Not exec Then
+			SetError "Mernis insert error. Tries: "& i 
+			Reporter.ReportEvent micFail, "Mernis insert", "Tries: "& i
+			CustomerDetails = false
+		End If
+		
+		
+			Reporter.ReportEvent micPass, "TC No", TC_NO
+
+			If Gender = "Male" Then
+				Gender = "Male"
+			Else 
+				Gender = "Female"
+			End If
+
+			DocumentType = "National Identity Card"
+			Randomize
+			IdNumber =	CStr(Int((999999999999-10000000000+1)*Rnd+100000000000))'
+			Issuer = "Samsun"
+			
+			Set recSet = Nothing
+			CustomerDetails = true
+			
+			If ENV="SYT" Then
+				TC_NO ="35927120852"
+				FirstName ="MUSTAFA KEMAL"
+				LastName ="USKOM"   
+		        FatherName ="MUSTAFA1"	
+		        MotherMaidenName ="KEMAL1"
+		        DateofBirth ="11.11.1985"
+		        PlaceofBirth ="IZMIR"
+			End If
+
+'	End If
+	
+	
+End Function
+
+
+Function GetData(customerType, reqBy, whereParam, recSet)
+	Dim tbl, msisdn
+
+	If reqBy = "" or IsEmpty(reqBy) Then reqBy = RequestedBy
+	
+	If CustomerType = "EBU" Then
+		tbl = "EBU_MOBILE_LINES"
+	ElseIf CustomerType = "CBU" Then
+		tbl = "CBU_MOBILE_LINES"
+	End If
+	If whereParam = "" or IsEmpty(whereParam) Then
+		query = "select * from "& tbl &" where USED = 'N' and created ='Y' and env='"& Env &"' and requested_by = '"& reqBy &"' and arayuz = '"& Interface &"' order by request_id asc"
+	Else
+		query = "select * from "& tbl &" where USED = 'N' and created ='Y' and env='"& Env &"' and requested_by = '"& reqBy &"' and arayuz = '"& Interface &"' and "& whereParam &" order by request_id asc"
+	End If
+	Reporter.ReportEvent micDone, "GetData", query
+	
+	Set recSet = CreateObject("ADODB.Recordset")
+	DBVTASRecordSet query, recSet
+	If recSet is Nothing Then
+		SetError Environment.Value("ActionName") &": sql query error: "& query
+		Reporter.ReportEvent micFail, "Sql query error", query
+		recSet = Empty
+		Exit Function
+	End If
+	If recSet.EOF Then
+		SetError Environment.Value("ActionName") &": sql query result is empty: "& query
+		Reporter.ReportEvent micWarning, "Sql query result is empty", query
+		recSet = Empty
+		Exit Function
+	End If
+		
+'	msisdn = recSet.Fields("GSM_NO").Value
+'	If IsEmpty(msisdn) or IsNull(msisdn) Then
+'		SetError "Gsm No empty or null: "& query
+'		Reporter.ReportEvent micFail, "Gsm No empty or null", query
+'		
+'		query = "update "& tbl &" set created='N' where REQUESTED_BY = '"& recSet.Fields("REQUESTED_BY").Value &"' and env='"& ENV &"' and request_id = '"& recSet.Fields("REQUEST_ID").Value &"'"
+'		DBVTASExecute query
+'		
+'		GetMsisdn = Empty
+'		Exit Function
+'	End If
+	
+'	query = "update "& tbl &" set used='Y' where gsm_no='"& msisdn &"' and env='"& ENV &"'"
+'	DBVTASExecute query
+End Function
+Function GetMsisdn(customerType, reqBy, whereParam)
+	Dim tbl, msisdn,i
+	If CustomerType = "EBU" Then
+		tbl = "EBU_MOBILE_LINES"
+	ElseIf CustomerType = "CBU" Then
+		tbl = "CBU_MOBILE_LINES"
+	End If
+	
+	If reqBy = "" or IsEmpty(reqBy) Then reqBy = "OTO"
+	Set recSet = CreateObject("ADODB.Recordset")
+	GetData CustomerType, reqBy, whereParam, recSet
+
+	If IsEmpty(recSet) Then
+		GetMsisdn = Empty
+		Exit Function
+	End If
+	
+	recSet.MoveFirst
+	For i = 1 To recSet.RecordCount Step 1
+		msisdn = recSet.Fields("GSM_NO").Value
+		If IsEmpty(msisdn) or IsNull(msisdn) Then
+			SetError "Gsm No empty or null: "& query
+			Reporter.ReportEvent micWarning, "Gsm No empty or null", query
+			
+			query = "update "& tbl &" set created='N' where REQUESTED_BY = '"& recSet.Fields("REQUESTED_BY").Value &"' and env='"& ENV &"' and request_id = '"& recSet.Fields("REQUEST_ID").Value &"'"
+			DBVTASExecute query
+			recSet.MoveNext
+		Else
+			Exit For
+		End If
+	Next
+	
+	If IsEmpty(msisdn) and IsNull(msisdn) Then
+		SetError Environment.Value("ActionName") &": no data in "& tbl &": "& query
+		Reporter.ReportEvent micWarning, "No data in "& tbl, query
+	Else
+		msisdn = CStr(msisdn)
+		query = "update "& tbl &" set used='Y', requested_by = '"& RequestedBy &"' where gsm_no='"& msisdn &"' and env='"& ENV &"'"
+		DBVTASExecute query
+	End If
+	
+	GetMsisdn = msisdn
+End Function
+Sub SetError(errTxt)
+	Errortext = Errortext & vbNewLine & Environment.Value("ActionName") &" "& Replace(errTxt, "'","''")
+	Print Now() & ":" & Errortext
+End Sub
+
+Function GetOrRunActivation(in_customerType, in_dataSource, in_requestId, in_tariff, out_dtSheetName)
+
+Dim tableName, sqlQuery
+
+in_customerType = UCase(in_customerType)
+If in_dataSource = "" or IsEmpty(in_dataSource) Then in_dataSource = "OTO"
+
+If in_customerType = "CBU" Then
+	tableName = "CBU_MOBILE_LINES"
+	If in_tariff = "" or IsEmpty(in_tariff) Then
+		in_tariff = "79001" '"RED CLASSIC-RED0002"
+		sqlQuery = "select * from "& tableName &" where USED = 'N' and ORDER_STATUS='Tamamlandı' and env='"& Env &"' and requested_by = '"& in_dataSource &"'"
+	Else
+		sqlQuery = "select * from "& tableName &" where USED = 'N' and ORDER_STATUS='Tamamlandı' and env='"& Env &"' and requested_by = '"& in_dataSource &"' and tariff_name = '"& in_tariff &"'"
+	End If
+Else
+	tableName = "EBU_MOBILE_LINES"
+	If in_tariff = "" or IsEmpty(in_tariff) Then
+		
+	End If
+End If
+
+
+
+
+If in_customerType = "CBU" Then
+	query = "select GSM_NO from CBU_MOBILE_LINES where USED = 'N' and ORDER_STATUS='Tamamlandı' and env='"& ENV &"' and requested_by = '"& Parameter("DataSource") &"'"
+	msisdn = DBVTASSelect (query)	
+	If IsEmpty(msisdn) Then
+		Reporter.ReportEvent micWarning, "Active Gsm No not found", query
+		ActionResult = LoadAndRunAction ("[ALM] Subject\OTOMASYON\GENESIS\SIEBEL\CBU\CBUActivation", "MobileLineActivation", oneIteration, "", "25", "Bireysel", "", "H", "Normal", "Red Extra-RED0006", "", "", "", RequestedBy)
+		If ActionResult Then
+			msisdn = DataTable.Value("GSM_NO", "MobileLineActivation [CBUActivation]")
+		Else
+'			SetError "Active Gsm No not found: "& query
+'			Reporter.ReportEvent micFail, "Active Gsm No not found", query
+			EndRequest False
+			ExitAction False
+		End If
+	End If
+	query = "update CBU_MOBILE_LINES set used='Y', request_id = "& RequestId &", requested_by = '"& RequestedBy &"' where gsm_no='"& msisdn &"' and env='"& ENV &"' and requested_by = '"& Parameter("DataSource") &"'"
+	DBVTASExecute query
+Else
+	query = "select GSM_NO from EBU_MOBILE_LINES where USED = 'N' and ORDER_STATUS='Tamamlandı' and env='"& ENV &"' and requested_by = '"& RequestedBy &"'"
+	msisdn = DBVTASSelect (query)	
+	If IsEmpty(msisdn) Then
+		Reporter.ReportEvent micWarning, "Active Gsm No not found", query
+		ActionResult = LoadAndRunAction ("[ALM] Subject\OTOMASYON\GENESIS\SIEBEL\EBU\MobileLineActivationAction", "MobileLine", oneIteration, "", "İş Ortağım Süper", "", "", "", "", "", "", "", "", "", dtSheet)
+'		ActionResult = RunAction ("MobileLine [MobileLineActivationAction]", oneIteration, "", "İş Ortağım Süper", "", "", "", "", "", "", "", "", "", dtSheet)
+		If ActionResult Then
+			msisdn = DataTable.Value("GSM_NO", dtSheet)
+		Else
+'			SetError "Active Gsm No not found: "& query
+'			Reporter.ReportEvent micFail, "Active Gsm No not found", query
+			EndRequest False
+			ExitAction False
+		End If
+	End If
+	query = "update EBU_MOBILE_LINES set used='Y', request_id = "& RequestId &", requested_by = '"& RequestedBy &"' where gsm_no='"& msisdn &"' and env='"& ENV &"' and requested_by = '"& Parameter("DataSource") &"'"
+	DBVTASExecute query
+End If
+End Function
+
+
+'Function RequestId(requestedBy)
+''	Dim creationDate
+''
+''	
+''	If QCUtil.IsConnected Then
+''		On Error Resume Next
+''		AlmRunId = QCUtil.CurrentRun.ID
+''		AlmRunName = QCUtil.CurrentRun.Name
+''		If Err.Number <> 0 Then
+''			AlmRunName = Err.Description
+''		End If
+''		On Error Goto 0
+''	End If
+''	
+''	If Parameter("RequestId") = "" or IsEmpty(Parameter("RequestId")) Then
+''		creationDate = CStr(Now)
+''		insertQuery = "INSERT INTO CASE_REQUESTS (CASE_NAME, REQUESTED_BY, ENV, INTERFACE, CREATION_DATE, STATUS, HOST, EBU_CBU, ALM_RUN_NAME)" &_ 
+''		" values ('"& Environment.Value("TestName") &"','"&  requestedBy &"', '"& ENV &"','" & INTERFACE &"','"& creationDate &"', 'Started','"& Environment.Value("LocalHostName") &"','"& EBU_CBU &"','"& AlmRunName &"')"
+''		DBVTASExecute insertQuery
+''		reqId = DBVTASSelect("select REQUEST_ID from CASE_REQUESTS where CREATION_DATE = '"& creationDate &"'")
+''	Else
+''		reqId = Parameter("RequestId")
+''	End If
+''	
+''	DBVTASExecute("update DHB_REQUESTS set ALM_RUN_ID = '"& AlmRunId & "' , ALM_RUN_NAME = '"& AlmRunName &"' where REQUEST_ID = " & reqId)
+'
+'
+''	If QCUtil.IsConnected Then
+''		On Error Resume Next
+''		ALMRunName = QCUtil.CurrentRun.Name
+''		If IsEmpty(ALMRunName) Then
+''			ALMRunName = "Local Run"
+''		End If
+''		On Error Goto 0
+''	Else
+''		ALMRunName = "Not Connected"
+''	End If
+''	If requested_by = ""  or IsEmpty(requested_by) Then
+''		requested_by = "OTO"
+''	End If
+''	CREATION_DATE = CStr(Now)
+''	query = "INSERT INTO CASE_REQUESTS (CASE_NAME, REQUESTED_BY, ENV, INTERFACE, CREATION_DATE, STATUS, HOST, EBU_CBU, ALM_RUN_NAME)" &_ 
+''	" values ('"& Environment.Value("TestName") &"','"&  requested_by &"', '"& ENV &"','" & INTERFACE &"','"& CREATION_DATE &"', 'Started','"& Environment.Value("LocalHostName") &"','"& EBU_CBU &"','"& ALMRunName &"')"
+''	DBVTASExecute query
+''	RequestId = DBVTASSelect("select REQUEST_ID from CASE_REQUESTS where CREATION_DATE = '"& CREATION_DATE &"'")
+'End Function
+Function UpdateCaseRequestStatus(reqid)
+Select Case Reporter.RunStatus
+	Case 0 
+		status = "Pass"
+	Case 1 
+		status = "Fail"
+	Case 2 
+		status = "Done"
+	Case 3 
+		status = "Warning"
+End Select
+
+EndTime = FormatDateTime(Now)
+s = datediff("s",StartTime,EndTime)
+
+updateQuery =  "update CASE_REQUESTS set CREATION_TIME = "& datediff("s",StartTime,EndTime) &", STATUS = '"& status &"' where REQUEST_ID = '"& reqid &"'"
+'TimeString(s)
+DBVTASExecute updateQuery
+End Function
+
+'Function SendOrderPopupHandler
+'	strfilepath = "C:\Otomasyon\SendOrderPopupHandler.vbs"
+'	Set fso = Createobject("Scripting.FileSystemObject")
+'	Set wfso = fso.OpenTextFile(strfilepath, 2, true)
+'	codetxt = "Set oshell = CreateObject(""WScript.Shell"")"& vbNewLine &_
+'				"	Wscript.sleep 60000"& vbNewLine &_
+'				"	If oshell.AppActivate(""Message from webpage"") then"& vbNewLine &_
+'				"		oshell.SendKeys ""%{F4}"""& vbNewLine &_
+'				"	End If"
+'	wfso.Write(codetxt)
+'	Set wfso = nothing
+'	Set fso = nothing
+'	SystemUtil.Run "c:\windows\system32\wscript.exe", strfilepath
+'End Function
+Function SendOrderPopupHandler
+ Reporter.Filter = rfDisableAll
+ On Error Resume Next
+	strfilepath = "\\SATAUTOAT01\SiebelHandler\SiebelHandler.vbs"
+	'strfilepath = Folder & "\SendOrderPopupHandler.vbs"
+	Set fso = Createobject("Scripting.FileSystemObject")
+	Set wfso = fso.OpenTextFile(strfilepath, 2, true)
+	codetxt = "Set oshell = CreateObject(""WScript.Shell"")"& vbNewLine &_
+				"Do"& vbNewLine &_
+				"	If oshell.AppActivate(""Message from webpage"") then"& vbNewLine &_
+				"		oshell.SendKeys ""{ENTER}"""& vbNewLine &_
+				"		Wscript.sleep 10000"& vbNewLine &_
+				"		If oshell.AppActivate(""Message from webpage"") then"& vbNewLine &_
+				"			oshell.SendKeys ""%{F4}"""& vbNewLine &_
+				"		End If"& vbNewLine &_
+				"		Exit Do"& vbNewLine &_
+				"	End If"& vbNewLine &_
+				"	Wscript.sleep 1000"& vbNewLine &_
+				"Loop"& vbNewLine &_
+				"Set oshell = Nothing"
+	wfso.Write(codetxt)
+	wfso.Close
+	Set wfso = nothing
+	Set fso = nothing
+	
+	SystemUtil.Run "c:\windows\system32\wscript.exe", strfilepath
+ 
+	
+'	"	Set qtApp = CreateObject(""QuickTest.Application"")"& vbNewLine &_
+'				"	If qtApp.GetStatus = ""Not launched"" or qtApp.GetStatus = ""Ready"" or qtApp.GetStatus = ""Recording"" Then"& vbNewLine &_
+'				"		Exit Do"& vbNewLine &_
+'				"	End If"& vbNewLine &_
+'	"Set qtApp = Nothing"& vbNewLine &_
+  Reporter.Filter = rfEnableAll
+End Function
+Function IEErrorHandler
+'	strfilepath = "C:\Otomasyon\IEErrorHandler.vbs"
+	strfilepath = Folder & "\IEErrorHandler.vbs"
+	Set fso = Createobject("Scripting.FileSystemObject")
+	Set wfso = fso.OpenTextFile(strfilepath, 2, true)
+	codetxt = "Set oshell = CreateObject(""WScript.Shell"")"& vbNewLine &_
+				"Do"& vbNewLine &_
+				"	If oshell.AppActivate(""Internet Explorer"") then"& vbNewLine &_
+				"		oshell.SendKeys ""%{F4}"""& vbNewLine &_
+				"		Exit Do"& vbNewLine &_
+				"	End If"& vbNewLine &_
+				"	Wscript.sleep 5000"& vbNewLine &_
+				"Loop"
+	wfso.Write(codetxt)
+	wfso.Close
+	Set wfso = nothing
+	Set fso = nothing
+	SystemUtil.Run "c:\windows\system32\wscript.exe", strfilepath
+End Function
+
+Function SiebelHandler
+	strfilepath = Folder & "\SiebelHandler.vbs" '"C:\Otomasyon\SiebelHandler.vbs"
+	Set fso = Createobject("Scripting.FileSystemObject")
+	Set wfso = fso.OpenTextFile(strfilepath, 2, true)
+	codetxt = "Set oshell = CreateObject(""WScript.Shell"")"& vbNewLine &_
+				"Do"& vbNewLine &_
+				"	If oshell.AppActivate(""Message from webpage"") then"& vbNewLine &_
+				"		oshell.SendKeys ""{ENTER}"""& vbNewLine &_
+				"		Exit Do"& vbNewLine &_
+				"	End If"& vbNewLine &_
+				"	Wscript.sleep 1000"& vbNewLine &_
+				"Loop"
+'	codetxt = "Set oshell = CreateObject(""WScript.Shell"")"& vbNewLine &_
+'				"While True"& vbNewLine &_
+'				"While not oshell.AppActivate(""Message from webpage"")"& vbNewLine &_
+'				"Wscript.sleep 1000"& vbNewLine &_
+'				"Wend"& vbNewLine &_
+'				"oshell.SendKeys ""{ENTER}"""& vbNewLine &_
+'				"Wend"
+	wfso.Write(codetxt)
+'	wfso.Write("Set oshell = CreateObject(""WScript.Shell"")"& vbNewLine &"While not oshell.AppActivate(""Message from webpage"")"& vbNewLine &"Wscript.sleep 500"& vbNewLine &"Wend"& vbNewLine &"oshell.SendKeys ""{ENTER}""")
+	Set wfso = nothing
+	Set fso = nothing
+	
+	SystemUtil.Run "c:\windows\system32\wscript.exe", strfilepath
+End Function
+Function CCBPopupHandlerAll
+'	strfilepath = "C:\Otomasyon\CCBPopupHandlerAll.vbs"
+	strfilepath = Folder & "\CCBPopupHandler.vbs"
+	Set fso = Createobject("Scripting.FileSystemObject")
+	Set wfso = fso.OpenTextFile(strfilepath, 2, true)
+	codetxt = "Dim qtApp"& vbNewLine &_
+				"Set oshell = CreateObject(""WScript.Shell"")"& vbNewLine &_
+				"Set qtApp = CreateObject(""QuickTest.Application"")"& vbNewLine &_
+				"Do"& vbNewLine &_
+				"	If oshell.AppActivate(""Message from webpage"") then"& vbNewLine &_
+				"		oshell.SendKeys ""{ENTER}"""& vbNewLine &_
+				"	End If"& vbNewLine &_
+				"	If qtApp.GetStatus = ""Not launched"" or qtApp.GetStatus = ""Ready"" or qtApp.GetStatus = ""Recording"" Then"& vbNewLine &_
+				"		Exit Do"& vbNewLine &_
+				"	End If"& vbNewLine &_
+				"	Wscript.sleep 500"& vbNewLine &_
+				"Loop"& vbNewLine &_
+				"Set qtApp = Nothing"& vbNewLine &_
+				"Set oshell = Nothing"
+	wfso.Write(codetxt)
+	Set wfso = nothing
+	Set fso = nothing
+	SystemUtil.Run "c:\windows\system32\wscript.exe", strfilepath
+End Function
+Function CCBPopupHandler
+'	strfilepath = "C:\Otomasyon\CCBPopupHandler.vbs"
+	strfilepath = Folder & "\CCBPopupHandler.vbs"
+	Set fso = Createobject("Scripting.FileSystemObject")
+	Set wfso = fso.OpenTextFile(strfilepath, 2, true)
+	codetxt = 	"Set oshell = CreateObject(""WScript.Shell"")"& vbNewLine &_
+				"Do"& vbNewLine &_
+				"	If oshell.AppActivate(""Message from webpage"") then"& vbNewLine &_
+				"		oshell.SendKeys ""{ENTER}"""& vbNewLine &_
+				"		Exit Do"& vbNewLine &_
+				"	End If"& vbNewLine &_				
+				"	Wscript.sleep 500"& vbNewLine &_
+				"Loop"& vbNewLine &_	
+				"Set oshell = Nothing"
+	wfso.Write(codetxt)
+	Set wfso = nothing
+	Set fso = nothing
+	SystemUtil.Run "c:\windows\system32\wscript.exe", strfilepath
+End Function
+Function TerminateProccess(processName)
+   strComputer = "."
+   Set objWMIService = GetObject("winmgmts:\\" & strComputer & "\root\cimv2")
+
+   Set colProcesses = objWMIService.ExecQuery ("Select * from Win32_Process Where Name = '"& processName &"'")
+   For Each objProcess in colProcesses
+      objProcess.Terminate()
+   Next
+   Set objWMIService = Nothing
+   Set colProcesses=Nothing
+End Function
+
+Function SMSCheckEBU(product, action, actionType, gsmNo, osmOrderNo)
+	'''action values New, Deteled, Modified
+
+	'''Activation actionType "100"
+	'''Deactivation actionType "111"
+	'''	ACTIONTYPE	ACTIONTYPE_NAME					ACTIONREASON	ACTIONREASON_NAME
+	'''	100			Ekle	 	 
+	'''	100			Ekle							225				Yeni Aktivasyon
+	'''	102			GSM No Değişikliği	 	 
+	'''	106			MNP Port In						226				Port In Aktivasyonu
+	'''	106			MNP Port In	 	 
+	'''	111			Ürün ve Servis Güncelleme	 	 
+	'''	111			Ürün ve Servis Güncelleme		232				Ürün ve Servis Güncelleme
+	'''	112			MNP Port In Iptal	 	 
+	'''	117			Kapama Açma - Kredi	 	 
+	'''	118			Kapama Açma - Fraud	 	 
+	'''	119			Kapama açma - Abone Istegi		214				Çözme
+	'''	119			Kapama açma - Abone Istegi		215				Kısıtlama Açma
+	'''	120			Taşıma							1123			iCCB den Numara Taşıma
+	'''	121			Hat Reddi - Kredi Risk	 	 
+	'''	122			Hat Reddi - Fraud	 	 
+	'''	123			Hat Reddi - Silme	 	 
+	'''	124			Devir Deaktivasyonu	 	 
+	'''	125			Fat Hesap Değişik Deaktivasyon	 	 
+	'''	127			Fatura Hesabı Değişikliği		1121			Fatura Hesabı Değişikliği
+	'''	127			Fatura Hesabı Değişikliği	 	 
+	'''	128			Devir							2200			Devir HATSAH_KUL
+	'''	128			Devir							250				Hacizden Devir
+	'''	128			Devir	 	 
+	'''	128			Devir							251				Ikna Devir
+	'''	128			Devir							252				Şirkete
+	'''	128			Devir							1122			Devir
+	'''	128			Devir							249				Akrabaya Devir
+	'''	131			Hat Reddi-Geri Göç	 	 
+	'''	134			Geriye Dönük Düzeltme			350				Geriye Dönük Düzeltme Talebi
+	'''	137			iCCB?den Taşıma	 	 
+
+	Dim tempSms, eaiTempId, messageBody, partNum, productName, duration, productType
+	SMSCheck = true
+	
+	If product <> "" or Not IsEmpty(product) Then
+		
+	'	GetMessageBodyAndTeplateId addOn, eaiTempId, tempSms
+		Set recSet = CreateObject("ADODB.Recordset")
+		query="select distinct s11.PART_NUM, a.desc_text, s11.X_VF_PRODUCT_GROUP, s14.ATTRIB_37 AS COMMERCIAL_PROD_NAME from siebel.S_PROD_INT_LANG a, SIEBEL.S_PROD_INT s11, siebel.s_prod_int_x s14 where a.par_row_id = s11.row_id and (a.desc_text='"& product &"' or s11.PART_NUM = '"& product &"') AND s11.row_id = s14.row_id(+) AND S11.PART_NUM IS NOT NULL"
+'		query="select PARTNUMBER, PROD_TRANSLATED_NAME_TRK from DHB_MV_ALL_PRODUCTS where (PARTNUMBER = '"& product &"' or PROD_TRANSLATED_NAME_TRK = '"& product &"' or PRODUCT_NAME = '"& product &"' or COMMERCIAL_PROD_NAME = '"& product &"')"
+		DBRecordSet "SIEBEL_EXT", ENV, query, recSet
+		If recSet is Nothing Then
+			ERRORTEXT = "SMSCheck: sql query error. SIEBEL_EXT: "& query
+			Reporter.ReportEvent micFail, "Sql query error", "SIEBEL_EXT: "& query
+			SMSCheck = false
+			Exit Function
+		End If
+		If recSet.EOF Then
+			ERRORTEXT = "SMSCheck: Product "& product &" SIEBEL_EXT not found: "& query
+			Reporter.ReportEvent micFail, "Product "& product &" not found in SIEBEL_EXT", query
+			SMSCheck = false
+			Exit Function
+		End If
+		
+		partNum = recSet.Fields("PART_NUM").Value
+		productName = recSet.Fields("COMMERCIAL_PROD_NAME").Value
+		productType = recSet.Fields("X_VF_PRODUCT_GROUP").Value
+		If isNull(productName) Then
+			productName = recSet.Fields("desc_text").Value
+		End If
+		
+		Reporter.ReportEvent micDone, "Part No: "& partNum, ""
+		Reporter.ReportEvent micDone, "Product Name: "& productName, ""
+		Reporter.ReportEvent micDone, "Product Type: "& productType, ""
+		
+		query = "SELECT MESSAGE_BODY, EAI_TEMPLATE_ID FROM SMS_CHECKS_EBU WHERE ACTIONTYPE='"& actionType &"' and ACTION = '"& action &"' AND PRODUCTCATALOGID='"& partNum &"'"
+		DBVTASRecordSet query, recSet
+		If recSet is Nothing Then
+			ERRORTEXT = "SMSCheck: cannot connect to SMS_CHECKS: "& query
+			Reporter.ReportEvent micFail, "Cannot connect to SMS_CHECKS", query
+			SMSCheck = false
+			Exit Function
+		End If
+		If recSet.EOF Then
+			ERRORTEXT = "SMSCheck: MESSAGE_BODY or EAI_TEMPLATE_ID not found in SMS_CHECKS: "& query
+			Reporter.ReportEvent micFail, "MESSAGE_BODY or EAI_TEMPLATE_ID not found in SMS_CHECKS", query
+			SMSCheck = false
+			Exit Function
+		End If
+'		If recSet.RecordCount > 1 Then
+'			ERRORTEXT = "SMSCheck: MESSAGE_BODY or EAI_TEMPLATE_ID more than 1 in SMS_CHECKS: "& query
+'			Reporter.ReportEvent micFail, ERRORTEXT
+'			SMSCheck = false
+'		End If
+		recSet.MoveFirst
+		For i = 0 To recSet.RecordCount - 1 Step 1
+			eaiTempId = recSet.Fields("EAI_TEMPLATE_ID").Value
+			tempSms = recSet.Fields("MESSAGE_BODY").Value
+			Reporter.ReportEvent micDone, "SMS_CHECKS EAI_TEMPLATE_ID: "& eaiTempId, query
+			Reporter.ReportEvent micDone, "SMS_CHECKS MESSAGE_BODY: "& tempSms, query
+			
+			If InStr(tempSms,"%PRODUCT_NAME%")<>0 Then
+				tempSms = Replace(tempSms, "%PRODUCT_NAME%", productName)
+				Reporter.ReportEvent micDone, "Replace %PRODUCT_NAME% with "& productName &": "& tempSms, ""
+			End If
+			If Instr(tempSms,"%NAME%") Then
+				tempSms = Replace(tempSms, "%NAME%", productName)
+				Reporter.ReportEvent micDone, "Replace %NAME% with "& productName &": "& tempSms, ""
+			End If
+			If Instr(tempSms,"%START_DATE%") Then
+				query = "select to_char(X_VF_FIRST_SUBMIT_DATE,'dd.mm.yyyy hh24:mi') as start_date from siebel.s_order where x_telco_om_public_id = '"& osmOrderNo &"'"
+				startDate = DBSelect("SIEBEL_EXT", ENV, query)
+				If IsEmpty(startDate) Then
+					ERRORTEXT = "SMSCheck: START_DATE is empty. SIEBEL_EXT: "& query
+					Reporter.ReportEvent micFail,"START_DATE is empty", "SIEBEL_EXT: "& query
+					SMSCheck = false
+					Exit Function
+				End If
+				tempSms = Replace(tempSms, "%START_DATE%", startDate)
+				Reporter.ReportEvent micDone, "Replace %START_DATE% with "& startDate &": "& tempSms, ""
+			End If
+			
+			If InStr(tempSms,"%DURATION%") Then
+				query = "select condition1 from SIEBEL.CX_PARAMETER where ACS_FUNCTION='VFCampaigns' and CONDITION1 is not null and name='"& productName &"'"
+				duration = DBSelect("SIEBEL_EXT", ENV, query)
+				If duration = "" or IsEmpty(duration) Then
+					ERRORTEXT = "SMSCheck: Campaign duration time not found. SIEBEL_EXT: "& query
+					Reporter.ReportEvent micFail,"Campaign duration time not found", "SIEBEL_EXT: "& query
+					SMSCheck = false
+					Exit Function
+				End If
+				tempSms = replace(tempSms,"%DURATION%",""& duration &"")
+				Reporter.ReportEvent micDone, "Replace %DURATION% with "& productName &": "& tempSms, ""
+			End If
+			If InStr(tempSms,"%") > 0 Then
+				If InStr(InStr(tempSms,"%"), tempSms,"%") > 0 Then
+					ERRORTEXT = "SMSCheck: tokens left in temp sms. SMS: "& tempSms
+					Reporter.ReportEvent micFail, ERRORTEXT, ""
+					SMSCheck = false
+				End If
+			End If
+			
+			'''Tibco SMS----------------------
+			query = "select a.MESSAGE_BODY from EAI_SMSC_MSG_OUT A, EAI_NC_MSG B where A.MESSAGE_ID=B.NOTIFICATION_ID AND A.address_destination like '90"& gsmNo &"' and B.TEMPLATE_ID = '"& eaiTempId &"'"
+			messageBody = DBSelect("TIBCO", ENV, query)
+			If messageBody = "" or IsEmpty(messageBody) Then
+				ERRORTEXT = "SMSCheck: MESSAGE_BODY not found. TIBCO: "& query
+				Reporter.ReportEvent micFail, "SMSCheck: MESSAGE_BODY not found", "TIBCO: "& query
+				SMSCheck = false
+				Exit Function
+			End If
+		
+			Reporter.ReportEvent micDone, "TIBCO MESSAGE_BODY: "& messageBody, "TIBCO: "& query
+				
+			If Ucase(tempSms) = Ucase(messageBody) Then
+				Reporter.ReportEvent micPass, productType &" Sms Control", ""
+'				Exit Function
+			Else
+				Reporter.ReportEvent micFail, productType &" Sms Control", ""
+				ERRORTEXT = "SMSCheck: failed"
+				SMSCheck = false
+			End If
+			'''End Tibco SMS----------------------
+			
+			recSet.MoveNext
+		Next
+
+		
+'		eaiTempId = recSet.Fields("EAI_TEMPLATE_ID").Value
+'		tempSms = recSet.Fields("MESSAGE_BODY").Value
+'		
+'		Reporter.ReportEvent micDone, "SMS_CHECKS EAI_TEMPLATE_ID: "& eaiTempId, ""
+'		Reporter.ReportEvent micDone, "SMS_CHECKS MESSAGE_BODY: "& tempSms, ""
+'		
+'		
+'		If InStr(tempSms,"%PRODUCT_NAME%")<>0 Then
+'			tempSms = Replace(tempSms, "%PRODUCT_NAME%", productName)
+'			Reporter.ReportEvent micDone, "Replace %PRODUCT_NAME% with "& productName &": "& tempSms, ""
+'		End If
+'		If Instr(message_body,"%NAME%") Then
+'			tempSms = Replace(tempSms, "%NAME%", productName)
+'			Reporter.ReportEvent micDone, "Replace %NAME% with "& productName &": "& tempSms, ""
+'		End If
+'		
+'		If InStr(message_body,"%DURATION%") Then
+'			query = "select condition1 from SIEBEL.CX_PARAMETER where ACS_FUNCTION='VFCampaigns' and CONDITION1 is not null and name='"& productName &"'"
+'			duration = DBSelect("SIEBEL_EXT", ENV, query)
+'			If duration = "" or IsEmpty(duration) Then
+'				ERRORTEXT = "SMSCheck: Campaign duration time not found. SIEBEL_EXT: "& query
+'				Reporter.ReportEvent micFail,"Campaign duration time not found", "SIEBEL_EXT: "& query
+'				SMSCheck = false
+'				Exit Function
+'			End If
+'			tempSms = replace(tempSms,"%DURATION%",""& duration &"")
+'			Reporter.ReportEvent micDone, "Replace %DURATION% with "& productName &": "& tempSms, ""
+'		End If
+'		If InStr(tempSms,"%") > 0 Then
+'			If InStr(InStr(tempSms,"%"), tempSms,"%") > 0 Then
+'				ERRORTEXT = "SMSCheck: tokens left in temp sms. SMS: "& tempSms
+'				Reporter.ReportEvent micFail, ERRORTEXT, ""
+'				SMSCheck = false
+'			End If
+'		End If
+'	
+'		query = "select a.MESSAGE_BODY from EAI_SMSC_MSG_OUT A, EAI_NC_MSG B where A.MESSAGE_ID=B.NOTIFICATION_ID AND A.address_destination like '90"& gsmNo &"' and B.TEMPLATE_ID = '"& eaiTempId &"'"
+'		messageBody = DBSelect("TIBCO", ENV, query)
+'		If messageBody = "" or IsEmpty(messageBody) Then
+'			ERRORTEXT = "SMSCheck: MESSAGE_BODY not found. TIBCO: "& query
+'			Reporter.ReportEvent micFail, "SMSCheck: MESSAGE_BODY not found", "TIBCO: "& query
+'			SMSCheck = false
+'			Exit Function
+'		End If
+'		
+'		Reporter.ReportEvent micDone, "TIBCO MESSAGE_BODY: "& messageBody, "TIBCO: "& query
+'				
+'		If Ucase(tempSms) = Ucase(messageBody) Then
+'			Reporter.ReportEvent micPass, productType &" Sms Control", ""
+'			Exit Function
+'		Else
+'			Reporter.ReportEvent micFail, productType &" Sms Control", ""
+'			ERRORTEXT = "SMSCheck: failed"
+'			SMSCheck = false
+'		End If
+		
+	End If
+End Function
+
+
+
+Public Sub DTCopyParams (FromSheet, ToSheet)
+
+	For i = 1 To DataTable.GetSheet(FromSheet).GetParameterCount Step 1
+		
+		For j = 1 To DataTable.GetSheet(ToSheet).GetParameterCount Step 1
+		
+			If DataTable.GetSheet(FromSheet).GetParameter(i).Name = DataTable.GetSheet(ToSheet).GetParameter(j).Name Then
+				
+				DataTable.GetSheet(ToSheet).GetParameter(j).Value = DataTable.GetSheet(FromSheet).GetParameter(i).Value
+				
+			End If
+			
+		Next
+		
+	Next
+	
+End Sub
+Public Sub DTInsertToDB (Sheet, DBTable)
+	
+	count = DataTable.GetSheet(Sheet).GetParameterCount
+	For i = 1 To count Step 1
+		columnsQueryPart = columnsQueryPart & DataTable.GetSheet(Sheet).GetParameter(i).Name
+		valuesQueryPart = valuesQueryPart &"'"& DataTable.Value(i,Sheet) &"'"
+		If i <> count Then
+			columnsQueryPart = columnsQueryPart & ","
+			valuesQueryPart = valuesQueryPart &","
+		End If
+	Next
+	insertQuery = "INSERT INTO "& DBTable &" (" & columnsQueryPart & ") VALUES (" & valuesQueryPart & ")"
+	DBVTASExecute insertQuery
+	
+End Sub
+Public Sub DTUpdateDB (Sheet, DBTable, Where)
+
+	count = DataTable.GetSheet(Sheet).GetParameterCount
+	For i = 1 To count Step 1
+		
+'		If DataTable.Value(i,Sheet) <> "" Then
+'			setQuery = setQuery & DataTable.GetSheet(Sheet).GetParameter(i).Name &" = '"& DataTable.Value(i,Sheet) &"'"
+'			If i <> count Then
+'				setQuery = setQuery & ", "
+'			End If
+'		End If
+
+		
+		If DataTable.Value(i,Sheet) = "" Then
+			setQuery = setQuery & DataTable.GetSheet(Sheet).GetParameter(i).Name &" = null"
+'			whereQuery = whereQuery & DataTable.GetSheet(Sheet).GetParameter(i).Name &" is null"
+		Else
+			If UCase(DataTable.Value(i,Sheet)) = "SYSDATE" Then
+				value = "SYSDATE"
+			ElseIf DataTable.GetSheet(Sheet).GetParameter(i).Name = "CREATED_DATE" Then
+				value = "SYSDATE"
+			Else
+				value = "'"& DataTable.Value(i,Sheet) &"'"
+			End If
+			setQuery = setQuery & DataTable.GetSheet(Sheet).GetParameter(i).Name &" = "& value
+'			whereQuery = whereQuery & DataTable.GetSheet(Sheet).GetParameter(i).Name &" = '"& DataTable.Value(i,Sheet) &"'" 
+		End If
+		
+		If i <> count Then
+			setQuery = setQuery & ", "
+'			whereQuery = whereQuery & " and "
+		End If
+		
+	Next
+	
+	query = "UPDATE "& DBTable &" SET "& setQuery &" WHERE "& Where 'whereQuery 
+	DBVTASExecute query
+	
+End Sub
+Public Function DTUpdateDBWhereString (Sheet)
+
+	count = DataTable.GetSheet(Sheet).GetParameterCount
+	For i = 1 To count Step 1
+		If DataTable.Value(i,Sheet) = "" Then
+'			whereQuery = whereQuery & DataTable.GetSheet(Sheet).GetParameter(i).Name &" = null"
+			whereQuery = whereQuery & DataTable.GetSheet(Sheet).GetParameter(i).Name &" is null"
+		Else
+			whereQuery = whereQuery & DataTable.GetSheet(Sheet).GetParameter(i).Name &" = '"& DataTable.Value(i,Sheet) &"'"
+		End If
+		
+		If i <> count Then
+			whereQuery = whereQuery & " and "
+		End If
+	
+'		If DataTable.Value(i,Sheet) <> "" Then
+'			whereQuery = whereQuery & DataTable.GetSheet(Sheet).GetParameter(i).Name &" = '"& DataTable.Value(i,Sheet) &"'" 
+'			If i <> count Then
+'				whereQuery = whereQuery & " and "
+'			End If
+'		End If
+	Next
+	
+	DTUpdateDBWhereString = whereQuery
+	
+End Function
+
+Public Sub InsertCustomerToDB (Sheet, DBTable)
+
+	count = DataTable.GetSheet(Sheet).GetParameterCount	
+	For i = 1 To count Step 1
+	
+		If DataTable.GetSheet(Sheet).GetParameter(i).Name = "SOYADKURUMADI" Then
+			DataTable.GetSheet(Sheet).GetParameter(i-1).Value = "EBU_CUSTOMERS_SEQ.nextval"
+			DataTable.GetSheet(Sheet).GetParameter(i).Value = " 'Corporate' || EBU_CUSTOMERS_SEQ.nextval"
+			Exit For
+		End If
+		
+	Next
+	
+	For i = 1 To count Step 1
+	
+		columnsQueryPart = columnsQueryPart & DataTable.GetSheet(Sheet).GetParameter(i).Name
+		
+		If DataTable.GetSheet(Sheet).GetParameter(i).Name = "SOYADKURUMADI" or DataTable.GetSheet(Sheet).GetParameter(i).Name = "CUSTOMER_INDEX" Then
+			valuesQueryPart = valuesQueryPart & DataTable.Value(i,Sheet)
+		Else
+			valuesQueryPart = valuesQueryPart &"'"& DataTable.Value(i,Sheet) &"'"
+		End If
+		
+		If i <> count Then
+			columnsQueryPart = columnsQueryPart & ","
+			valuesQueryPart = valuesQueryPart &","
+		End If
+		
+	Next
+	insertQuery = "INSERT INTO "& DBTable &" (" & columnsQueryPart & ") VALUES (" & valuesQueryPart & ")"
+	DBVTASExecute insertQuery
+	
+End Sub
+
+Public Sub UploadExceltoALMTS(filename)
+	On Error Resume Next
+	If QCUtil.IsConnected and TestArgs("Isteyen") <> "OTO" Then
+		Set attachFact = QCUtil.CurrentTestSet.Attachments 
+		Set attachFile = attachFact.AddItem(Null)
+		
+		attachFile.FileName = fileName
+		attachFile.Type = 1
+		attachFile.Post()
+		attachFile.Refresh
+	
+''		''Here i have created attachment factory object which is associated with QC and it will fetch all the attachment from the current Test Plan and store it in attachList array of element. 
+'		Set attachList = attachFact.NewList("") 
+'		
+'''		ReDim Preserve AttachmentList(attachList.Count - 1) 
+'''		Dim i
+'''		i = LBound(AttachmentList) 
+'''		'Running loop for each attachment and uploading them from QC to an array.
+'''		For Each theAttachment In attachList
+'''		     AttachmentList(i) = theAttachment.ServerFileName
+'''		      i = i + 1
+'''		Next 
+'
+'		Dim att(0)
+'		att(0) = attachList(attachList.Count).ServerFileName
+'
+'
+''		basariliSayisi = DBVTASSelect ("select MUSTERISAYISI, BASARILISAYISI from CUSTOMER_REQUESTS where REQUEST_ID = '"& DataTable.Value("REQUEST_ID","Customer") &"'")
+'
+''		mailBody = "<HTML><BODY>" & _
+''					"<p style=""color: #151515; font-size: 20px;"">Oluşturulan data</p>" &_
+''					"İstenen Müşeteri sayısı: " & basariliSayisi(0) & _
+''					"<br>Başarılı yaratılan Müşeteri sayısı: " & basariliSayisi(1) & _
+''					"<br><br><p style=""color: #585858; font-size: 14px;"">Bu e-posta otomatik olarak oluşturulmuştur. Yanlışlık ya da sorunuz varsa lütfen Otomasyon ekibiyle iletişime geçiniz.</p>" & _
+''					"</BODY></HTML>"
+''		mailBody = "<HTML><BODY>" & _
+''					"<p style=""color: #151515; font-size: 20px;"">Oluşturulan datayı ekte bulabilirsiniz</p>" &_
+''					"Case: " & Environment.Value("TestName") & _
+''					"<br><br><p style=""color: #585858; font-size: 14px;"">Bu e-posta otomatik olarak oluşturulmuştur. Yanlışlık ya da sorunuz varsa lütfen Otomasyon ekibiyle iletişime geçiniz.</p>" & _
+''					"</BODY></HTML>"
+''		
+''		mailto = TestArgs("Isteyen") & ",it.automation.r2d2.scrum.team.tr@vodafone.com,ilyas.bayraktar@vodafone.com"
+''
+''		QCUtil.QCConnection.SendMail mailto, , QCUtil.CurrentTestSet.Name, mailBody, att, "HTML"
+
+
+	End If
+End Sub
+Public Function GetEmailFromALM (username)
+	Set custUsers = QCUtil.QCConnection.Customization.Users
+	Set UList = custUsers.Users
+'	Print custUsers.Count
+	
+	For Each usr In UList
+		If usr.name = username Then 'usr.name
+'			Print usr.name & ", " & usr.Email & ", " & usr.fullname
+
+			GetEmailFromALM = usr.Email
+			Exit For
+		End If
+  	Next 
+End Function 
+Public Function GetEmailFromALMbyFullName (fullname)
+	Set custUsers = QCUtil.QCConnection.Customization.Users
+	Set UList = custUsers.Users
+'	Print custUsers.Count
+	
+	For Each usr In UList
+		If usr.fullname = fullname Then 'usr.name
+'			Print usr.name & ", " & usr.Email & ", " & usr.fullname
+			GetEmailFromALMbyFullName = usr.Email
+			Exit For
+		End If
+  	Next 
+End Function
+Public Function GetFullNameFromALM (username)
+	Set custUsers = QCUtil.QCConnection.Customization.Users
+	Set UList = custUsers.Users
+'	Print custUsers.Count
+	
+	For Each usr In UList
+		If usr.name = username Then 'usr.name
+'			Print usr.name & ", " & usr.Email & ", " & usr.fullname
+			GetFullNameFromALM = usr.fullname
+			Exit For
+		End If
+  	Next 
+End Function 
+Public Sub SendMail(sendto, cc, bcc, from, subject, textbody, attachfile)
+  
+  Set iMsg = CreateObject("CDO.Message")
+  Set iConf = CreateObject("CDO.Configuration")
+ 
+  iConf.Load -1 ' CDO Source Defaults
+  Set Flds = iConf.Fields
+ 
+  With Flds
+	.Item("http://schemas.microsoft.com/cdo/configuration/smtpserver") = "outlook.vodafone.local"
+	.Item("http://schemas.microsoft.com/cdo/configuration/sendusing") = 2
+	'Value of 2 means send using port
+	'value of 1 means send using a local SMTP server
+	'value of 3 means send using Exchange Server
+	
+	.Item("http://schemas.microsoft.com/cdo/configuration/smtpserverport") = 25
+	'The SMTP Port which must be enabled in your network by ISP or local Firewall
+	
+	.Update
+  End With
+ 
+  With iMsg
+	Set .Configuration = iConf
+	.To = sendto
+	.CC = cc
+	.BCC = bcc
+	.From = from
+	.Subject = subject
+	.TextBody = textbody'"Bu e-posta otomatik olarak oluşturulmuştur. Yanlışlık ya da sorunuz varsa KEEP CALM And Call CENGIZHAN"
+	.AddAttachment attachfile
+	'Local path of the file to attached
+	'For attaching another file, 
+	'repeat the line with new path
+	.Send
+  End With
+End Sub
+
+Public Function GenerateTCNO (lastDigit)
+'TC Algoritması: 
+'	1) 100000000-999999999 arası random sayı "tcno"
+'	2) 1,3,5,7,9 pozisyondaki sayiların topla "tekPozisyonluSayilarinToplami"
+'	3) 2,4,6,8 pozisyondaki sayiların topla "ciftPoziyonluSayilarinToplami"
+'	4) Onuncu pozisyonadaki sayi: = ((tekPozisyonluSayilarinToplami * 7) - ciftPoziyonluSayilarinToplami) MOD 10
+'	5) Onbirinci pozisyonadaki sayi: onSayininToplami mod 10
+
+	While CInt(onbirinciHane)<>CInt(lastDigit)
+		tcno = ""
+		tekPozisyonluSayilarinToplami = 0
+		ciftPoziyonluSayilarinToplami = 0
+		onuncuHane = 0
+		onSayininToplami = 0
+		onbirinciHane = 0
+		Randomize
+		tcno = CStr(Int((999999999-100000000+1)*Rnd+100000000))
+		For i = 1 To 9
+			If ((i) mod 2) <> 0 Then
+				tekPozisyonluSayilarinToplami = tekPozisyonluSayilarinToplami + CInt(Mid(tcno,i,1))
+			Else
+				ciftPoziyonluSayilarinToplami = ciftPoziyonluSayilarinToplami + CInt(Mid(tcno,i,1))
+			End If
+		Next
+		
+		onuncuHane = ((tekPozisyonluSayilarinToplami * 7) - ciftPoziyonluSayilarinToplami) MOD 10
+'		tcno = tcno & onuncuHane	
+'		For i = 1 To 10
+'			onSayininToplami = onSayininToplami + CInt(Mid(tcno,i,1))
+'		Next
+		
+		onSayininToplami = tekPozisyonluSayilarinToplami + ciftPoziyonluSayilarinToplami + onuncuHane
+		onbirinciHane = onSayininToplami mod 10
+		tcno = tcno & onuncuHane & onbirinciHane
+	Wend
+	GenerateTCNO = tcno
+End Function
+Public Function RandomString(ofLength)
+	For i = 1 To ofLength
+		Randomize
+	 	retval = retval & Chr(Int(26*Rnd+97))
+	Next
+	RandomString = retval
+End Function
+
+Public Sub DeleteExplorerHistory()
+On error resume next
+'SystemUtil.CloseProcessByWndTitle "Siebel",True'siebel ile alakalı uygulamarı gorev yoneticisinde sonlandırır.'
+
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.run "RunDll32.exe InetCpl.cpl,ClearMyTracksByProcess 8"
+
+'To clear browsing cookies
+WshShell.run "RunDll32.exe InetCpl.cpl,ClearMyTracksByProcess 2"
+
+'To Clear Browsing History
+WshShell.run "RunDll32.exe InetCpl.cpl,ClearMyTracksByProcess 1"
+End Sub
+Function ReportScreenshot
+	On Error Resume Next
+	reporterfilter = Reporter.Filter
+	Reporter.Filter = rfDisableAll
+	filename = Folder &"\pic"& DatePart("d",Now()) & DatePart("m",Now()) &DatePart("yyyy",Now()) & "_" & DatePart("h",Now()) & DatePart("n",Now()) & DatePart("s",Now()) &".png"
+	Set oDesc = Description.Create
+	oDesc( "micclass" ).Value = "Browser"
+	count = Desktop.ChildObjects(oDesc).Count
+	If count > 0 Then
+		For i = 0 To count - 1 Step 1
+			Browser("creationtime:="& i).CaptureBitmap filename
+			Reporter.ReportEvent micDone,"Screenshot: Browser "& i + 1, "", filename
+			filename = Folder &"\pic"& DatePart("d",Now()) & DatePart("m",Now()) &DatePart("yyyy",Now()) & "_" & DatePart("h",Now()) & DatePart("n",Now()) & DatePart("s",Now()) &".png"
+		Next
+	Else
+		Desktop.CaptureBitmap filename
+		Reporter.ReportEvent micDone,"Screenshot: Desktop", filename
+	End If
+	Reporter.Filter = reporterfilter
+	On Error Goto 0
+End Function
+Function TakeScreenshot()
+	Dim f, filename,filterMode
+	On Error Resume Next
+	filterMode = Reporter.Filter
+	Reporter.Filter = 3
+	filename = ""
+'	f = CreateFolder(Folder &"\TestExectionLog")
+	f = TestExecLogFolder
+	
+	screenshotIter = screenshotIter + 1
+	Set oDesc = Description.Create
+	oDesc("micclass").Value = "Browser"
+	Set objs = Desktop.ChildObjects(oDesc)
+	count = objs.Count
+	For i = 0 To count - 1 Step 1
+		If objs(i).Exist(0) Then
+			title = objs(i).getroproperty("title")
+			If title <> "Blank Page - Internet Explorer" and title <> "about:blank" Then
+				screenshotIter = screenshotIter + 1
+				'title = objs(i).getroproperty("name")
+	'			DatePart("d",Now()) & DatePart("m",Now()) &DatePart("yyyy",Now()) & "_" & DatePart("h",Now()) & DatePart("n",Now()) & DatePart("s",Now())
+				If title = "" or IsEmpty(title) Then
+					filename = f &"\pic"&"_"& screenshotIter &".png"
+				Else
+	'				If Len(title) > 55 Then
+	'					title = Mid(title, 1, 55)
+	'				End If
+					strCur="!@#$%^&*()?><~`+=|\/.',{}[];:-%"
+					For iCount = 0 To Len(strCur) Step 1
+						title = Replace(title, Mid(strCur, iCount + 1, 1), "")
+					Next
+					If title = "" or IsEmpty(title) Then
+						title = "pic"
+					End If
+					filename = f &"\"& title &"_"& screenshotIter &".png"
+				End If
+				objs(i).CaptureBitmap filename
+				If Err.Number <> 0 Then
+					screenshotIter = screenshotIter + 1
+					filename = f &"\"& vTitle &"_"& screenshotIter &".png"
+					objs(i).CaptureBitmap filename
+					SetError "Screenshot File Path: "& filename
+				End If
+				Reporter.Filter = filterMode
+				Reporter.ReportEvent micDone, "Screenshot", "Window title: "& title, filename
+				filterMode = Reporter.Filter
+				Reporter.Filter = 3
+			End If
+		End If
+	Next
+	
+	If filename <> "" Then
+		TakeScreenshot = filename
+	Else
+	'	deskfilename = Folder &"\pic"& DatePart("d",Now()) & DatePart("m",Now()) &DatePart("yyyy",Now()) & "_" & DatePart("h",Now()) & DatePart("n",Now()) & DatePart("s",Now()) &"_Desktop.png"
+		deskfilename = f &"\Desktop_"& screenshotIter &".png"
+		Desktop.CaptureBitmap deskfilename
+		Reporter.ReportEvent micDone, "Desktop Screenshot", "", deskfilename
+		
+		TakeScreenshot = deskfilename
+	End If
+	
+	Reporter.Filter = filterMode
+	On Error Goto 0
+'	'filename = Folder &"\pic"& DatePart("d",Now()) & DatePart("m",Now()) &DatePart("yyyy",Now()) & "_" & DatePart("h",Now()) & DatePart("n",Now()) & DatePart("s",Now()) &".png"
+'	'Set oDesc = Description.Create
+'	'oDesc("micclass").Value = "Browser"
+'	'count = Desktop.ChildObjects(oDesc).Count
+'	'If count > 0 Then
+'	'	For i = 0 To count - 1 Step 1
+'	'		filename = filename &"_"& i &".png"
+'	'		Browser("creationtime:="& i).CaptureBitmap filename
+'	'		Reporter.ReportEvent micDone,"Browser ekrangörüntüsü "& i + 1, "", filename
+'	'	Next
+'	'End If
+'	'filename = Folder &"\pic"& DatePart("d",Now()) & DatePart("m",Now()) &DatePart("yyyy",Now()) & "_" & DatePart("h",Now()) & DatePart("n",Now()) & DatePart("s",Now()) &"_Desktop.png"
+'	'Desktop.CaptureBitmap filename
+'	'Reporter.ReportEvent micDone,"Masaüstü ekrangörüntüsü", filename
+'	
+'	
+'	'filename = Folder &"\pic"& DatePart("d",Now()) & DatePart("m",Now()) &DatePart("yyyy",Now()) & "_" & DatePart("h",Now()) & DatePart("n",Now()) & DatePart("s",Now())
+'	Set oDesc = Description.Create
+'	oDesc("micclass").Value = "Window"
+'	Set objs = Desktop.ChildObjects(oDesc)
+'	For i = 0 To objs.Count - 1 Step 1
+'		On Error Resume Next
+'		
+'		take = true
+'		title = objs(i).getroproperty("title")
+'	'	print objs(i).getroproperty("title") 'objs(i).getroproperty("regexpwndtitle")
+'		If title = "Program Manager" Then take = false
+'		If title = "Start" Then take = false
+'		If title = "BBar" Then take = false
+'		If objs(i).getroproperty("nativeclass") = "Shell_TrayWnd" Then take = false
+'	
+'		If take Then
+'	'		print "name: "& objs(i).getroproperty("name")
+'	'		print "regexpwndtitle: "& objs(i).getroproperty("regexpwndtitle")
+'	'		print "title: "& objs(i).getroproperty("title")
+'	'		print "nativeclass: "& objs(i).getroproperty("nativeclass")
+'	'		print ""
+'			If title = "" or IsEmpty(title) Then
+'				filename = Folder &"\pic"& DatePart("d",Now()) & DatePart("m",Now()) &DatePart("yyyy",Now()) & "_" & DatePart("h",Now()) & DatePart("n",Now()) & DatePart("s",Now()) &"_"& i &".png"
+'			Else
+'				filename = Folder &"\"& replace(replace(replace(title," ","_"),":","_"),"@","_") &"_"& i &".png"
+'			End If
+''			objs(i).Activate
+''			Wait 1
+'			objs(i).CaptureBitmap filename
+'			Reporter.ReportEvent micDone,"Screenshot: "& title, "Window title: "& title, filename
+'		End If
+'	Next 
+'	On Error Goto 0
+'	deskPng = Folder &"\Desktop"& DatePart("d",Now()) & DatePart("m",Now()) &DatePart("yyyy",Now()) & "_" & DatePart("h",Now()) & DatePart("n",Now()) & DatePart("s",Now()) &"_"& i &".png"
+'	Desktop.CaptureBitmap deskPng
+'	TakeScreenshot = deskPng
+'	
+'''	reporterFilter = Reporter.Filter 
+'''	Reporter.Filter = rfDisableAll
+'''	Dim f1
+'''	filename = Folder &"\pic"& DatePart("d",Now()) & DatePart("m",Now()) &DatePart("yyyy",Now()) & "_" & DatePart("h",Now()) & DatePart("n",Now()) & DatePart("s",Now())
+'''	f1 = filename &"_desktop.png"
+'''	captured = false
+'''	On error resume next	
+'''	Dim objExists: objExists = Dialog("text:=.*").Exist
+'''	If Err.Number = 0 Then
+'''		If Dialog("text:=.*").Exist(1) Then
+'''			Dialog("text:=.*").captureBitmap filename &".png"
+'''			TakeScreenshot = filename &".png"
+'''			On Error Goto 0
+'''			captured = true
+''''			Exit Function
+'''		End If
+'''	End If
+'''	
+''''	Set objExists = SiebApplication("Siebel Call Center").Exist
+''''	If Err.Number = 0 Then
+''''		If SiebApplication("Siebel Call Center").exist(1) Then
+''''			SiebApplication("Siebel Call Center").captureBitmap filename
+''''			TakeScreenshot = filename
+''''			On Error Goto 0
+''''			Exit Function
+''''		End If
+''''	End If
+''''	Err.Number = 0
+'''	Desktop.CaptureBitmap f1
+'''	
+'''	Set oDesc = Description.Create
+'''	oDesc( "micclass" ).Value = "Browser"
+'''	count = Desktop.ChildObjects(oDesc).Count
+'''	If count>1 Then
+'''		Reporter.ReportEvent micWarning, "More than one "& count &" browser window", "Screenshots will be taken for all browsers by desc sort"
+'''	End If
+'''	For i = 0 To count - 1 Step 1		
+'''		If Browser("creationtime:="& i).exist(1) Then
+'''			filename = filename & "_"& i 
+'''			Browser("creationtime:="& i).CaptureBitmap filename &".png"
+'''			captured = true
+'''			Reporter.ReportEvent micDone, "Browser with creationtime:="& i, "", filename &".png"
+''''			Exit For
+'''		End If
+'''	Next
+''''	If Not captured Then
+''''		Desktop.CaptureBitmap f1
+''''	End If
+''''	If count > 0 Then
+''''	    Browser("creationtime:="& count - 1).CaptureBitmap filename
+''''	Else
+''''		Desktop.CaptureBitmap filename
+''''	End If
+'''	
+''''	If Browser("creationtime:=0").Exist(1) Then
+''''		Browser("creationtime:=0").CaptureBitmap filename
+''''	Else
+''''		Desktop.CaptureBitmap filename
+''''	End If
+'''	
+'''	TakeScreenshot = f1'filename &".png"
+'''	On Error Goto 0
+'''	Reporter.Filter = reporterFilter
+End Function
+Public Function fn_KillProcess(sProcess)
+ 	''Kill process by name
+ 	''Can be used % to kill several process
+ 	''Used in SiebelLogin action to kill all siebels exe in process by settin sProcess param "SiebelEx_%" 
+ 	''Return 1 if found any process
+ 	''Return 0 if no process found
+ 	''Return -1 if error
+ 
+	Dim  objWMI, objProcList, msg, result
+	
+	result = -1
+	
+	On Error Resume Next
+	Err.Clear
+	Set objWMI = GetObject("winmgmts:\\.\root\cimv2")
+	'Look for the given process instance in Task Manager
+	Set objProcList = objWMI.ExecQuery("Select * from Win32_Process Where Name like '" & sProcess & "'")
+	'Incase Process is found inthe Task Manager
+	If  objProcList.Count <> 0 Then
+		Dim iCnt :iCnt = 0
+		For Each objProc in objProcList
+			objProc.Terminate
+			iCnt = iCnt + 1
+		Next
+		msg = iCnt &" Running instances killed for the Application = '"& sProcess &"'"
+		result = 1
+	Else
+		msg = "No Running Instance found for the Application = '"& sProcess &"'"
+		result = 0
+	End If
+	
+	'Destroying the Objects
+	Set objWMI = Nothing
+	Set objProcList = Nothing
+	
+	If Err.Number <> 0 Then
+		msg = "Not able to execute the process, Error occured = '"& Err.Description &"'"
+		Reporter.ReportEvent micWarning, "fn_KillProcess", msg
+	Else
+		Reporter.ReportEvent micDone, "fn_KillProcess", msg
+	End If
+	fn_KillProcess = result
+	On Error Goto 0
+End Function 
+
+Public Function CreateFolder(path)
+	Set obj = Createobject("Scripting.FileSystemObject")
+'	Folder = "C:\Otomasyon"
+	If Not obj.FolderExists(path) Then obj.CreateFolder path
+'	path = path &"\"& Environment("TestName")
+'	If obj.FolderExists(path) = false Then
+'		obj.CreateFolder path
+'	End If
+'	On Error Resume Next
+'	If RequestId <> "" and Not IsEmpty(RequestId) Then
+'		path = path &"\"& RequestId
+'		If obj.FolderExists(path) = false Then
+'		 	obj.CreateFolder path
+'		End If
+'	End If
+''	If RequestedBy <> "" and Not IsEmpty(RequestedBy) Then
+''		path = path &"\"& RequestedBy
+''		If obj.FolderExists(path) = false Then
+''		 	obj.CreateFolder path
+''		End If
+''	End If
+''	If TestArgs("Isteyen") <>"" Then
+''		path = path &"\"& TestArgs("Isteyen")
+''		If obj.FolderExists(path) = false Then
+''		 	obj.CreateFolder path
+''		End If
+''	End If
+	On Error Goto 0
+	CreateFolder = path
+	Set obj = nothing
+End Function
+
+Public Sub ExportDBtoExcel (sqlQuery, sheetName, fileName)
+	
+	Set objExcel = CreateObject("Excel.Application")
+	objExcel.Visible = false
+	
+	Set fileObj = Createobject("Scripting.FileSystemObject")
+	If fileObj.FileExists(fileName) Then
+	
+		Set objWorkbook = objExcel.Workbooks.Open(fileName)
+		
+		objWorkbook.Sheets.Add
+		On Error Resume Next
+		objWorkbook.ActiveSheet.Name = sheetName
+		If Err.Number <> 0 Then
+			objWorkbook.ActiveSheet.Name = sheetName & objWorkbook.Sheets.Count
+		End If
+		On Error Goto 0
+		
+	Else	
+	
+		Set objWorkbook = objExcel.Workbooks.Add
+		
+		objWorkbook.Sheets.Add
+		On Error Resume Next
+		objWorkbook.ActiveSheet.Name = sheetName
+		If Err.Number <> 0 Then
+			objWorkbook.ActiveSheet.Name = sheetName & objWorkbook.Sheets.Count
+		End If
+		On Error Goto 0
+		
+		For i = objWorkbook.Sheets.Count To 2 Step -1
+			objWorkbook.Sheets.Item(i).Delete
+		Next
+		
+	End If
+	
+		
+	
+	DBVTASRecordSet sqlQuery, recSet
+	
+	For i = 0 To recSet.Fields.Count - 1 Step 1
+		objExcel.cells(1, i + 1).value = recSet.Fields(i).Name
+	Next 
+	
+	
+	If Not recSet.EOF Then
+		recSet.MoveFirst
+		For i = 0 To recSet.RecordCount - 1 Step 1
+			For j = 0 To recSet.Fields.Count - 1 Step 1
+				objExcel.cells(i + 2, j + 1).value = recSet.Fields(j).Value
+			Next 
+		recSet.MoveNext
+		Next 
+	End If
+	
+	rowHeight = objExcel.Rows(1).RowHeight
+	
+	objExcel.Range(objExcel.Cells(1, 1), objExcel.Cells(1, 1)).AutoFilter
+
+	Set rng = objExcel.Range(objExcel.Cells(1, 1), objExcel.Cells(1, objExcel.ActiveSheet.UsedRange.Columns.Count))
+	rng.Font.ColorIndex = 2
+	rng.Font.Bold = true
+	rng.Interior.Color = RGB(0,112,192)
+	
+	objExcel.ActiveSheet.Cells.HorizontalAlignment = -4108
+	rng.Columns.AutoFit
+	
+	objExcel.ActiveSheet.UsedRange.Rows.RowHeight = rowHeight
+	objExcel.ActiveSheet.UsedRange.WrapText = true
+	
+	objExcel.DisplayAlerts = false
+	
+	objWorkbook.SaveAs fileName,,,,,, 3,2
+    objExcel.Application.Quit
+
+End Sub
+Public Sub CustomerExcel(fileName, sheetName)
+'	On Error Resume Next
+
+	Set objExcel = CreateObject("Excel.Application")
+	objExcel.Visible = false
+'	objExcel.Workbooks.Open(fileName)
+	Set objWorkbook = objExcel.Workbooks.Open(fileName)
+'	Set objWorkbook = objExcel.Workbooks.Add(fileName)
+'	objWorkbook.Worksheets.Add(sheetNam)
+	objWorkbook.Worksheets(sheetName).Select
+
+'	objWorkbook.Worksheets(sheetName).Select
+'	For i = objExcel.UsedObjects.Count To 2 Step -1
+'		If objExcel.Cells(i, 1).Value = "" Then
+'			objExcel.Rows(i).EntireRow.Delete
+'	    End If
+'	Next
+'	objExcel.Columns(12).Delete
+'	objExcel.Columns(11).Delete
+'	objExcel.Columns(10).Delete
+'	objExcel.Columns(9).Delete
+'	objExcel.Columns(2).Delete
+	rowHeight = objExcel.Rows(1).RowHeight
+	
+	For i = objExcel.ActiveSheet.UsedRange.Columns.Count To 2 Step -1
+		If objExcel.Cells(1, i).Value = "" Then
+			objExcel.Columns(i).EntireColumn.Delete
+	    End If
+	Next
+'	For i = 2 To objExcel.ActiveSheet.UsedRange.Rows.Count Step 1
+'		If objExcel.Cells(i, 1).Value = "" Then
+'			objExcel.Rows(i).EntireRow.Delete
+'	    End If
+'	Next
+	objExcel.Range(objExcel.Cells(1, 1), objExcel.Cells(1, 1)).AutoFilter
+	
+	Set rng = objExcel.Range(objExcel.Cells(1, 1), objExcel.Cells(1, objExcel.ActiveSheet.UsedRange.Columns.Count))
+'	objExcel.Range(objExcel.Cells(1, 1), objExcel.Cells(1, objExcel.ActiveSheet.UsedRange.Columns.Count)).AutoFilter
+	
+	objExcel.ActiveSheet.Cells.Borders.LineStyle = xlLineStyleNone
+''	objExcel.ActiveSheet.Cells.Borders.LineStyle = xlContinuous
+''	objExcel.ActiveSheet.UsedRange.Cells.Borders.ColorIndex = 15
+'	objExcel.ActiveSheet.ListObjects.Add(1, objExcel.ActiveSheet.UsedRange, , xlYes).Name = "Table1"
+'	objExcel.ActiveSheet.ListObjects("Table1").TableStyle = "TableStyleLight8"
+
+	rng.Font.ColorIndex = 2
+	rng.Font.Bold = true
+	rng.Interior.Color = RGB(0,112,192)'36
+'	objExcel.Range(objExcel.Cells(1, 1), objExcel.Cells(1, objExcel.ActiveSheet.UsedRange.Columns.Count)).Font.ColorIndex = 
+	
+	objExcel.ActiveSheet.Cells.HorizontalAlignment = -4108
+	rng.Columns.AutoFit
+	
+	objExcel.ActiveSheet.UsedRange.Rows.RowHeight = rowHeight
+	objExcel.ActiveSheet.UsedRange.WrapText = true
+	
+	objExcel.DisplayAlerts = false
+	
+
+	objExcel.ActiveWorkbook.SaveAs fileName,,,,,, 3,2
+'    objExcel.Workbooks.close
+    objExcel.Application.Quit
+'	On Error Goto 0 
+'	objWorkbook.Save
+'	
+'	Set objWorkbook = nothing
+'	Set objExcel = nothing
+'	SystemUtil.CloseProcessByName("EXCEL.EXE")
+End Sub
+
+Public Function ValidateObject (ObjectName, Object, CheckEverySeconds, MaximumWaitSeconds)
+    
+    objectLoaded = false
+    waitCounter = 0
+
+''		65541 normal
+''		65569 text input
+''		65543 LOADING?
+''		65545 loading?
+''		211619673 siebel list HAND
+'	cursor = 65543
+'	While (cursor = 65543 or cursor = 65545 or Not Object.Exist(CheckEverySeconds)) and waitCounter < (MaximumWaitSeconds/CheckEverySeconds)
+'		
+'		If Object.Exist(CheckEverySeconds) Then
+'			ValidateObject = true
+'			Exit Function
+'		End If
+'		
+'		waitCounter = waitCounter + 1
+'		cursor = get_cursor()
+'	Wend
+	While objectLoaded = false and waitCounter < (MaximumWaitSeconds/CheckEverySeconds)
+		
+		If Object.Exist(CheckEverySeconds) Then
+			objectLoaded = true
+	    Else 
+	    	objectLoaded = false
+		End If
+		waitCounter = waitCounter + 1
+	Wend
+	
+	If objectLoaded Then
+		ValidateObject = true
+    Else
+    	'reporter.ReportEvent micFail, ObjectName,  "Loading Error: The object does not exist"
+		ValidateObject = false
+	End If
+	
+'	While (cursor = 65543 or cursor = 65545 or objectLoaded = false)) and waitCounter < (MaximumWaitSeconds/CheckEverySeconds)
+'		waitCounter = waitCounter + 1
+'		cursor = get_cursor()
+'	
+'		If Object.Exist(CheckEverySeconds) Then
+'			objectLoaded = true
+'	    Else 
+'	    	objectLoaded = false
+'		End If
+'	Wend
+	
+'	If objectLoaded Then
+'		ValidateObject = true
+'    Else
+'    	'reporter.ReportEvent micFail, ObjectName,  "Loading Error: The object does not exist"
+'		ValidateObject = false
+'	End If
+End Function
+
+'----------------------loading function----------------------
+'These come once, in the top of the script
+extern.Declare micLong,"GetForegroundWindow","user32.dll","GetForegroundWindow"
+extern.Declare micLong,"AttachThreadInput","user32.dll","AttachThreadInput", micLong, micLong,micLong
+extern.Declare micLong,"GetWindowThreadProcessId","user32.dll","GetWindowThreadProcessId", micLong, micLong
+extern.Declare micLong,"GetCurrentThreadId","kernel32.dll","GetCurrentThreadId"
+extern.Declare micLong,"GetCursor","user32.dll","GetCursor"
+'Function definition
+Public Function get_cursor()
+    hwnd = extern.GetForegroundWindow()
+    pid = extern.GetWindowThreadProcessId(hWnd, NULL)
+    thread_id=extern.GetCurrentThreadId()
+    extern.AttachThreadInput pid,thread_id,True
+    get_cursor=extern.GetCursor()
+    extern.AttachThreadInput pid,thread_id,False
+end function
+'Now we can use the function in our scripts
+Public Function LoadingWaitSiebel(waitValue)
+
+sayac=0
+sonuc=waitValue
+While get_cursor()=65543 and sayac<sonuc
+	wait(5)
+	sayac=sayac+1
+	If sayac=sonuc Then
+		reporter.ReportEvent micFail, "ekran yüklenemedi", "", getPictureOfScreen
+	End If
+Wend
+wait(2)'parametrik olabilir
+sayac=0
+While get_cursor()=65543 and sayac<sonuc
+	wait(3)
+	sayac=sayac+1
+	If sayac=sonuc Then
+		reporter.ReportEvent micFail, "ekran yüklenemedi", "", getPictureOfScreen
+	End If
+Wend
+End Function
+'----------------------loading function END-------------------
+
+Public Function  fnCloseApplication( byval sApplicationExe)
+	Dim reporterFilter
+	On Error Resume Next
+	reporterFilter = reporter.Filter
+	Reporter.Filter = 3
+	'strComputer="computer name"
+	Dim strComputer
+	Dim objWMIService
+	Dim colProcesses
+	Dim objProcess
+	strComputer = "."
+	Set objWMIService = GetObject("winmgmts:\\" & strComputer & "\root\cimv2")
+	Set colProcesses = objWMIService.ExecQuery ("Select * from Win32_Process Where Name = '"&sApplicationExe&"'")
+	For Each objProcess in colProcesses
+		objProcess.Terminate()
+	Next
+	Set objWMIService = Nothing
+	Set colProcesses=Nothing
+	Reporter.Filter = reporterFilter
+   On Error Goto 0
+End Function
+
+Public Function TimeString(Seconds)
+
+	Dim lHrs
+	Dim lMinutes
+	Dim lSeconds
+	Dim sAns
+	
+	lSeconds = Seconds
+	
+	lHrs = Int(lSeconds / 3600)
+	lMinutes = (Int(lSeconds / 60)) - (lHrs * 60)
+	lSeconds = Int(lSeconds Mod 60)
+	
+	If lSeconds = 60 Then
+	    lMinutes = lMinutes + 1
+	    lSeconds = 0
+	End If
+	
+	If lMinutes = 60 Then
+	    lMinutes = 0
+	    lHrs = lHrs + 1
+	End If
+	
+	sAns = CStr(lHrs) & ":" & CStr(lMinutes) & ":" & CStr(lSeconds)
+	TimeString = sAns
+
+End Function
+
+
+Public Sub error_handler(task)
+	if err.number<>0 then 
+	On error goto 0
+	reporter.ReportEvent micFail,""&task&" Adımı Yapılamadı",""&task&" adımı yapılırken hata alındı.İlgili adımı manuel koşarak hatayı inceleyiniz. Uygun datanın bulunamaması veya test otomasyon akışının değişmesi halinde lütfen otomasyon takımına case detaylarıyla birlikte durumu bildiriniz.. "
+	reporter.ReportEvent micFail, ""&task&" Adımı Yapılamadı", "", getPictureOfScreen
+    error_flag= "-1"
+	End if
+End Sub
+
+
+
+'''======================================================
+'''For Order Configuration, Services, Tariffs vs. screens
+'''======================================================
+Function GetHtmlInputObjectByDisplayName(mainObj, name)
+	Set nameObj = mainObj.WebElement("innerhtml:="& name,"visible:=true")
+    If Not nameObj.Exist(1) Then
+    	Set nameObj = mainObj.WebElement("innerhtml:="& name &".*","visible:=true")
+    End If
+    If nameObj.Exist(1) Then
+        Set parentObj = GetParentObject(nameObj.object,"tr")
+        If Not parentObj is Nothing Then
+        	Set inputObj = parentObj.getElementsByTagname("input")
+        	If inputObj.length = 1 Then
+        		Set GetHtmlInputObjectByDisplayName = inputObj(0)
+        		Exit Function
+        	ElseIf inputObj.length > 1 Then
+        		ERRORTEXT = "Innerhtml:="& name &" olan "& nameObj.object.tagname &" tag ın parent TR elementin altında "& inputObj.length &" sayıda INPUT vardır."
+        	Else
+        		ERRORTEXT = "Innerhtml:="& name &" olan "& nameObj.object.tagname &" tag ın parent TR elementin altında INPUT bulunamadı."
+        	End If
+        Else
+        	ERRORTEXT = "Innerhtml:="& name &" olan tag ın parent TR element bulunamadı."
+        End If
+    Else
+    	ERRORTEXT = "Innerhtml:="& name &" olan tag bulunamadı."
+    End If
+    Set GetHtmlInputObjectByDisplayName = Nothing
+End Function
+Function GetHtmlSelectObjectByDisplayName(mainObj, name)
+   Set nameObj = mainObj.WebElement("innerhtml:="& name,"visible:=true")
+    If Not nameObj.Exist(1) Then
+    	Set nameObj = mainObj.WebElement("innerhtml:="& name &".*","visible:=true")
+    End If
+    If nameObj.Exist(1) Then
+        Set parentObj = GetParentObject(nameObj.object,"table")
+        If Not parentObj is Nothing Then
+        	Set selectObj = parentObj.getElementsByTagname("select")
+        	If selectObj.length = 1 Then
+        		Set GetHtmlSelectObjectByDisplayName = selectObj(0)
+        		Exit Function
+        	ElseIf selectObj.length > 1 Then
+        		ERRORTEXT = "Innerhtml:="& name &" olan "& nameObj.object.tagname &" tag ın parent TR elementin altında "& selectObj.length &" sayıda INPUT vardır."
+        	Else
+        		ERRORTEXT = "Innerhtml:="& name &" olan "& nameObj.object.tagname &" tag ın parent TR elementin altında INPUT bulunamadı."
+        	End If
+        Else
+        	ERRORTEXT = "Innerhtml:="& name &" olan "& nameObj.object.tagname &" tag ın parent TR element bulunamadı."
+        End If
+    Else
+    	ERRORTEXT = "Innerhtml:="& name &" olan html element bulunamadı."
+    End If
+    Set GetHtmlSelectObjectByDisplayName = Nothing
+End Function
+Function CheckboxRadioButtonClick(mainObj, name, value)
+	''VALUE = true/false
+	Set obj = GetHtmlInputObjectByDisplayName(mainObj, name)
+	If obj is Nothing Then
+		Reporter.ReportEvent micFail, ERRORTEXT, ""
+		CheckboxRadioButtonClick = false
+	Else
+		If obj.checked <> value Then
+			obj.Click
+			Reporter.ReportEvent micPass, name &" "& obj.tagname &":="& obj.checked, ""
+		Else
+			Reporter.ReportEvent micWarning, name &" "& obj.tagname &" istenilen value="& value &", olan value="& obj.checked, ""
+		End If
+		CheckboxRadioButtonClick = true
+	End If
+End Function
+Function GetCheckboxRadioButtonValue(mainObj, name)
+	''Return true/false
+	Set obj = GetHtmlInputObjectByDisplayName(mainObj, name)
+	If obj is Nothing Then
+		Reporter.ReportEvent micFail, ERRORTEXT, ""
+		GetCheckboxRadioButtonValue = empty
+	Else
+		Reporter.ReportEvent micPass, name &" "& obj.tagname &":="& obj.checked, ""
+		GetCheckboxRadioButtonValue = obj.checked
+	End If
+End Function
+Function SelectWebListValue(mainObj, name, value)
+	''Return True/False
+	Set obj = GetHtmlSelectObjectByDisplayName(mainObj, name)
+	If obj is Nothing Then
+		Reporter.ReportEvent micFail, ERRORTEXT, ""
+		SelectWebListValueByObj = false
+	Else
+		For i = 0 To obj.options.length-1 Step 1
+			If obj.options(i).text = value Then
+				obj.selectedindex = i
+				If Not isNull(obj.onchange) Then
+					obj.onchange()
+				End If
+				Reporter.ReportEvent micPass, name &" weblist: "& value, ""
+				SelectWebListValue = true
+				Exit Function
+			End If
+		Next
+
+		ERRORTEXT = name &" weblist te "& value &" değeri bulunamadı."
+		Reporter.ReportEvent micFail, ERRORTEXT,""
+		SelectWebListValue = false
+	End If
+End Function
+Function SelectWebListValueByObj(ByVal obj, ByVal value)
+'	''Return True/False
+'	If obj is Nothing Then
+'		Reporter.ReportEvent micFail, "", ""
+'		SelectWebListValueByObj = false
+'	Else
+	Dim selected
+	selected = false
+	If obj.options.length = 0 Then
+		SetError "No value to select in "& name &" weblist"
+		Reporter.ReportEvent micFail, "Select "& value & " in "& name & " weblist", "no value in weblist"
+		selected = false
+	Else
+		For i = 0 To obj.options.length-1 Step 1
+			If UCase(obj.options(i).text) = UCase(value) Then
+				If obj.classname = "eCfgOptionExcluded" Then
+					SetError "In "& name &" weblist "& value &" value can't be selected (className = eCfgOptionExcluded)"
+					Reporter.ReportEvent micFail, "Select "& value & " in "& name & " weblist", "value can't be selected (className = eCfgOptionExcluded)"
+					selected = false
+					Exit For
+				End If
+				
+				obj.selectedindex = i
+				If Not isNull(obj.onchange) Then
+					obj.onchange()
+				End If
+				selected = true
+				Exit For
+			End If
+		Next
+		If Not selected Then
+			SetError value & " value not found in in "& name &" weblist"
+			Reporter.ReportEvent micFail, "Select "& value & " in "& name & " weblist", value & " value not found"
+			selected = false
+		End If
+	End If
+'	End If
+	Takescreenshot
+	SelectWebListValueByObj = selected
+End Function
+Function GetWebListValue(obj)
+	''Return Value/empty
+	'Set obj = GetHtmlSelectObjectByDisplayName(mainObj, name)
+	If obj is Nothing Then
+		Reporter.ReportEvent micFail, ERRORTEXT, ""
+	Else
+		value = obj.options(obj.selectedIndex).text
+		GetWebListValue = value
+	End If
+End Function
+Function GetLinkObject(mainObj, text)
+	''Return Link Object
+	Set linkObj = mainObj.Link("text:="& text)
+	If linkObj.Exist(1) Then
+		Set GetLinkObject = linkObj.object
+		Exit Function
+	End If
+	Set GetLinkObject = Nothing
+End Function
+
+Function CheckSelectObject(ByVal obj, ByVal operation, ByVal name, ByVal value)
+	
+	selected = true
+	
+	If UCase(obj.tagname) = "INPUT" Then	
+		If UCase(operation) = "CHECK" Then
+			If obj.type = "text" Then
+				If UCase(obj.value) = UCase(value) Then
+					Reporter.ReportEvent micPass, name, value
+				Else
+					SetError name &" = "& obj.value &", expected value "& value
+					Reporter.ReportEvent micFail, name, "Selected value: """& obj.value &""", expected value: """& value &""""
+					selected = false
+				End If
+			Else
+				If obj.checked = CBool(value) Then
+					Reporter.ReportEvent micPass, name, value
+				Else
+					SetError name &" = "& obj.value &", expected value "& value
+					Reporter.ReportEvent micFail, name, "Selected value: """& obj.value &""", expected value: """& value &""""
+					selected = false
+				End If
+			End If
+		Else
+			If obj.type = "text" Then
+				If UCase(obj.value) <> UCase(value) Then
+					obj.value = value
+					If Not isNull(obj.onchange) Then
+						obj.onchange()
+					End If
+					Reporter.ReportEvent micPass, name, value
+				Else
+					SetError name &" = "& obj.value &" was selected"
+					Reporter.ReportEvent micWarning, name, """"& obj.value &""" was selected"
+					TakeScreenshot
+					selected = false
+				End If
+			Else
+				If obj.checked <> CBool(value) Then
+					obj.click
+					Reporter.ReportEvent micPass, name, obj.checked
+				Else
+					SetError name &" = "& obj.checked &" was selected"
+					Reporter.ReportEvent micWarning, name, """"& obj.checked &""" was selected"
+					selected = true
+				End If
+			End If
+		End If
+	ElseIf UCase(obj.tagname) = "SELECT" Then
+		objValue = obj.options(obj.selectedIndex).text
+		If UCase(operation) = "CHECK" Then
+			If UCase(objValue) = UCase(value) Then
+				Reporter.ReportEvent micPass, name, objValue
+			Else
+				SetError name &" = "& obj.value &", expected value "& value
+				Reporter.ReportEvent micFail, name, "Selected value: """& objValue &""", expected value """& value &""""
+				selected = false
+			End If
+		Else
+			If UCase(value) <> UCase(objValue) Then
+				selected = SelectWebListValueByObj(obj, value)
+				If selected Then
+					Reporter.ReportEvent micPass, name, value
+				Else
+					Reporter.ReportEvent micFail, name, value
+				End If
+			Else
+				SetError name &" = """& objValue &""", was selected"
+				Reporter.ReportEvent micWarning, name, objValue &", was selected"
+				selected = true
+			End If
+		End If
+	End If
+	
+	TakeScreenshot
+	CheckSelectObject = selected
+	
+End Function
+
+Function GetParentObject(sourceObj, parentTagName)
+	Dim p_sourceObj, p_parentTagName
+	Set p_sourceObj = sourceObj
+	p_parentTagName = parentTagName
+	
+	While Not p_sourceObj.parentElement is Nothing
+		Set p_sourceObj = p_sourceObj.parentElement
+		If UCase(p_sourceObj.tagName) = UCase(p_parentTagName) Then
+			Set GetParentObject = p_sourceObj
+			Exit Function
+		End If
+	Wend
+	Set GetParentObject = Nothing
+End Function
+Function GetHtmlSelectInputObjectUnderTag(sourceObj, parentTagName, targetTagName)
+	Dim targetObj, parentObj
+	targetTagName = UCase(targetTagName)
+	parentTagName = UCase(parentTagName)
+	
+	Set parentObj = GetParentObject(sourceObj, parentTagName)
+	If Not parentObj is Nothing Then
+		Set targetObj = parentObj.getElementsByTagname(targetTagName)
+		If targetObj.length = 1 Then
+			Reporter.ReportEvent micDone, targetTagName, "html tag found"
+			Set GetHtmlSelectInputObjectUnderTag = targetObj(0)
+			Exit Function
+''		ElseIf targetObj.length > 1 Then
+''			SetError targetObj.length &" "& targetTagName &" under "& parentTagName &" tag."
+'''			Reporter.ReportEvent micFail, targetTagName, resultObj.length &" count under "& parentTagName &" tag.", Takescreenshot
+'		Else
+'			SetError targetObj.length &" "& targetTagName &" under "& parentTagName &" tag."
+''			SetError "0 "& targetTagName &" under "& parentTagName &" tag."
+''			Reporter.ReportEvent micFail, targetTagName, resultObj.length &" "& targetTagName &" under "& parentTagName &" tag.", Takescreenshot
+''			Set GetHtmlSelectInputObjectUnderTag = targetObj(0)
+		End If
+''	Else
+''    	SetError resultObj.length &" "& targetTagName &" under "& parentTagName &" tag."
+    End If
+    
+	Set GetHtmlSelectInputObjectUnderTag = Nothing
+End Function
+
+Function GetHtmlSelectInputObjectByDisplayName(mainObj, name)
+'	Dim resultObj
+
+	Dim nameObjExist
+	
+	
+	 '''''''DISABLED BECAUSE OF DIFFERENT NAME OF TARIFFS
+	name = replace(replace(name,"(","\("),")","\)")
+	name = replace(name,"+","\+")
+		If Not Instr(1,name,"4.5G") >0 Then
+			name = replace(name,".","\.")
+		End If
+	
+	name = replace(name,"&","&amp;")
+	
+	nameObjExist = false
+	Reporter.Filter = rfDisableAll
+	Set nameObj = mainObj.WebElement("innerhtml:="& name)
+    If Not nameObj.Exist(1) Then
+    	Set nameObj = mainObj.WebElement("innerhtml:="& name,"visible:=true")
+    End If
+    If Not nameObj.Exist(1) Then
+    	Set nameObj = mainObj.WebElement("innerhtml:="& name,"outerhtml:=<B>"& name &"</B>","visible:=true")
+    End If
+    If Not nameObj.Exist(1) Then
+    	Set nameObj = mainObj.WebElement("innerhtml:="& name,"outerhtml:=<SPAN>"& name &"</SAPN>","visible:=true")
+    End If
+    If Not nameObj.Exist(1) Then
+    	Set nameObj = mainObj.WebElement("innerhtml:="& name &".*","visible:=true")
+    End If
+    If Not nameObj.Exist(1) Then
+    	Set nameObj = mainObj.WebElement("innertext:="& name,"visible:=true")
+    End If
+    If Not nameObj.Exist(1) Then
+    	Set nameObj = mainObj.WebElement("innertext:="& name,"html tag:=SPAN","visible:=true")
+    End If
+    If Not nameObj.Exist(1) Then
+    	Set nameObj = mainObj.WebElement("innertext:="& name,"html tag:=B","visible:=true")
+    End If
+    If nameObj.Exist(1) Then
+    	Set nameObj = nameObj.object
+    	nameObjExist = true
+    Else
+    	nameObjExist = false
+    	Set nameObj = mainObj.object.getelementsbytagname("td")
+    	nameObjCount = nameObj.length
+    	For n = 0 To nameObjCount - 1 Step 1
+'    		print nameObj(n).innerText
+    		If nameObj(n).innerText	= name Then
+    			Set nameObj = nameObj(n)
+    			nameObjExist = true
+    			Exit For
+    		End If
+    	Next
+    End If
+    Reporter.Filter = rfEnableAll 
+    
+    If nameObjExist Then
+		Set resultObj = GetHtmlSelectInputObjectUnderTag(nameObj, "tr", "input")
+		If resultObj is Nothing Then
+			Set resultObj = GetHtmlSelectInputObjectUnderTag(nameObj, "tr", "select")
+		End If
+		If resultObj is Nothing Then
+			Set resultObj = GetHtmlSelectInputObjectUnderTag(nameObj, "table", "input")
+		End If
+		If resultObj is Nothing Then
+			Set resultObj = GetHtmlSelectInputObjectUnderTag(nameObj, "tbody", "select")
+		End If
+		
+		If Not resultObj is Nothing Then
+			Set GetHtmlSelectInputObjectByDisplayName = resultObj
+			Exit Function
+		End If
+    Else
+    	SetError "Innerhtml:="& name &" olan tag bulunamadı."
+    End If
+    
+    Set GetHtmlSelectInputObjectByDisplayName = Nothing
+    
+End Function
+
+Function SelectServicesTatiffs(strParameter)
+	'''strParameterstring olarak verilir
+	''' CheckBox için değeri True/False, List için string değeri
+	''' Kotröl için ServisAdı??değeri girilir
+	''' Seçmek için ServisAdı=değeri girilir
+	''' Servis altında kotröl ya da seçme için -> işareti kullanılır, alt servisler birden fazla ise onları ; işaret ile ayrılırır. Örnek: DATA=true->Tipi=4.5G;VoLTE??true
+	''' Ana Servisler # işaretle ayrılırır. Örnek: DATA=true->Tipi=4.5G#VF Tanıtım SMS İstenmez=true
+	''' Eğer servis seçme amaçlı girildiyse, fakat servis istenilen değere zaten eşit ise Reporter a Warning basılır, case i fail etmez  
+	
+	
+	'Parameter("Servis") = "Numaram Rehbere Geçsin=E"'"DATA=true->Tipi=4.5G;VoLTE??true#Şirket İçi VPN=true"
+	'Parameter("Servis") = "DATA=true->Tipi=4.5G;VoLTE??true#VF Tanıtım SMS İstenmez=true"'#Şirket İçi VPN=true"
+	
+	completed = true
+	Set mainObj = Browser("creationtime:=0").Page("title:=.*").Frame("name:=CfgMainFrame")
+	If Not mainObj.Exist(1) Then
+		completed = false
+		Reporter.ReportEvent micFail, "Browser(""creationtime:=0"").Page(""title:=.*"").Frame(""name:=CfgMainFrame"") bulunamadı",""
+		SelectServicesTatiffs = completed
+		Exit Function
+	End If
+	
+	allServicesArr = split(strParameter,"#")
+	For allIter = 0 To UBound(allServicesArr) Step 1
+	
+		mainServicesArr = Split(allServicesArr(allIter),"->")
+		
+		If InStr(1,mainServicesArr(0),"??")>0 Then
+			checkSelect = "check"
+			mainServices = split(trim(mainServicesArr(0)),"??")
+			mainServiceName = trim(mainServices(0))
+			mainServiceValue = trim(mainServices(1))
+		Else
+			checkSelect = "select"
+			mainServices = split(trim(mainServicesArr(0)),"=")
+			mainServiceName = trim(mainServices(0))
+			mainServiceValue = trim(mainServices(1))
+		End If
+		
+		
+		Set obj = GetHtmlSelectInputObjectByDisplayName(mainObj, mainServiceName)
+		
+		If Not obj is Nothing Then
+			
+			selected = CheckSelectObject(obj, checkSelect, mainServiceName, mainServiceValue)
+			If Not selected Then
+				completed = false
+			End If
+			
+			If mainServiceName = "Şirket İçi VPN" Then
+				Set linkObj = GetLinkObject (mainObj, mainServiceName)
+				If Not linkObj is Nothing Then
+					linkObj.click
+					Reporter.ReportEvent micPass, mainServiceName &" linke tıklandı",""
+					VpnGroup
+				Else
+					ERRORTEXT = mainServiceName &" link bulunamadı"
+					Reporter.ReportEvent micFail, ERRORTEXT,""
+					completed = false
+				End If		
+			End If	
+			
+			If UBound(mainServicesArr) = 1 and selected Then
+				Set linkObj = GetLinkObject (mainObj, mainServiceName)
+				If Not linkObj is Nothing Then
+					linkObj.click
+					Reporter.ReportEvent micPass, mainServiceName &" linke tıklandı",""
+							
+					secServicesArr = Split(mainServicesArr(1),";")
+					For secIter = 0 To UBound(secServicesArr) Step 1
+					
+						If InStr(1,secServicesArr(secIter),"??")>0 Then
+							checkSelect = "check"
+							secService = split(trim(secServicesArr(secIter)),"??")
+							secServisName = trim(secService(0))
+							secServisValue = trim(secService(1))
+						Else
+							checkSelect = "select"
+							secService = split(trim(secServicesArr(secIter)),"=")
+							secServisName = trim(secService(0))
+							secServisValue = trim(secService(1))
+						End If
+										
+						Set obj = GetHtmlSelectInputObjectByDisplayName(mainObj, secServisName)
+						If Not obj is Nothing Then
+							selected = CheckSelectObject(obj, checkSelect, secServisName, secServisValue)
+							If Not selected Then
+								completed = false
+							End If
+						Else
+							ERRORTEXT = mainServiceName& " CheckBox un altında "& secServisName &" isimli html input ya da html select bulunamadı"
+							Reporter.ReportEvent micFail, ERRORTEXT,""
+							completed = false
+						End If
+					Next
+					
+					If mainObj.Link("text:=Ana Ekran").Exist(1) Then
+						mainObj.Link("text:=Ana Ekran").Click
+					ElseIf mainObj.Link("text:=Mobil Hat Tüketici").Exist(1) Then
+						mainObj.Link("text:=Mobil Hat Tüketici").Click
+					Else
+						ERRORTEXT = "Ana Ekran butonu bulunamadı"
+						Reporter.ReportEvent micFail, ERRORTEXT,""
+						selected = false
+					End If
+				Else
+					ERRORTEXT = mainServiceName &" link bulunamadı"
+					Reporter.ReportEvent micFail, ERRORTEXT,""
+					completed = false
+				End If
+			End If
+	
+		Else
+			completed = false
+			ERRORTEXT = mainServiceName & " isimli html tag bulunamadı"
+			Reporter.ReportEvent micFail, ERRORTEXT,""
+		End If
+	Next
+	
+	SelectServicesTatiffs = completed
+End Function
+Function CBUTariffs(availability)
+''return two dimensional array where first element is Tariff Name, second Input(RadioButton) object. If Input object not exist array value is Nothing.
+''availability values available, excluded, all
+	Dim resultArr
+	Set mainObj = Browser("creationtime:=0").Page("title:=.*").Frame("name:=CfgMainFrame")
+	If mainObj.Exist(60) Then
+	Else
+		completed = false
+		Reporter.ReportEvent micFail, "Browser(""creationtime:=0"").Page(""title:=.*"").Frame(""name:=CfgMainFrame"") bulunamadı",""
+		CBUTariffs = resultArr
+	End If
+	
+	If UCase(availability) = "AVAILABLE" Then availability = "eCfgRadioAvailable"
+	If UCase(availability) = "EXCLUDED" Then availability = "eCfgRadioExcluded"
+	If UCase(availability) = "ALL" Then availability = "eCfgRadio.*"	
+	Set radioButtonDesc = Description.Create
+	radioButtonDesc("micclass").value = "WebElement"
+	radioButtonDesc("class").value = availability '"eCfgRadio.*"'radioButtonDesc("value").value = "on"	'radioButtonDesc("class").value = "eCfgRadioAvailable" '"eCfgRadioExcluded"
+	Set radioButtonObj = mainObj.ChildObjects(radioButtonDesc)
+	ReDim resultArr(radioButtonObj.count - 1, 1)
+	For i = 0 To radioButtonObj.count - 1 Step 1
+		resultArr(i, 0) = radioButtonObj(i).getroproperty("innertext")
+		resultArr(i, 1) = GetParentObject(radioButtonObj(i).object, "tr").GetElementsByTagName("input")
+'		If resultArr(i, 1) is nothing Then Reporter.ReportEvent micWarning, "Tariff: "& resultArr(i, 0) & " no Input(radio button) object"
+	Next
+	CBUTariffs = resultArr
+End Function
+Function CBUSelectTariff(tariffName)
+	Dim tariffs
+	tariffs = CBUTariffs("AVAILABLE")
+	If Ubound(tariffs) > -1 Then
+		For i = 0 To Ubound(tariffs) Step 1
+			If UCase(tariffs(i,0)) = UCase(tariffName) Then
+				tariffs(i,1).click
+				
+				Set mainObj = Browser("creationtime:=0").Page("title:=.*").Frame("name:=CfgMainFrame")
+				If Not mainObj.Exist(1) Then
+					ERRORTEXT = "Browser(""creationtime:=0"").Page(""title:=.*"").Frame(""name:=CfgMainFrame"") bulunamadı"
+					Reporter.ReportEvent micFail, ERRORTEXT,"", Takescreenshot
+					CBUSelectTariff = false
+					Exit Function
+				End If
+				If mainObj.WebTable("html id:=CfgErrorMessageSpan").Exist(1) Then
+					ERRORTEXT = "Tariff : "& tariffName & " seçerken hata: "& mainObj.WebTable("html id:=CfgErrorMessageSpan").getroproperty("innertext")
+'					mainObj.WebTable("name:=btn_less","column names:=.*"& tariffName &".*").GetROProperty("text")
+					Reporter.ReportEvent micWarning, ERRORTEXT,""
+					If mainObj.Link("text:=Devam Et()|Proceed").Exist(1) and mainObj.Link("text:=Devam Et()|Proceed").Object.disabled = false Then
+						mainObj.Link("text:=Devam Et()|Proceed").Click
+					Else
+						ERRORTEXT = "Tariff : "& tariffName & " seçerken hata: "& mainObj.WebTable("html id:=CfgErrorMessageSpan").getroproperty("innertext")
+						Reporter.ReportEvent micFail, ERRORTEXT,""
+						Exit Function
+					End If
+					
+					Reporter.ReportEvent micWarning, "Tariff : "& tariffName & " seçerken hata: "& ERRORTEXT,""
+				End If
+				
+				CBUSelectTariff = true
+				Exit Function
+			End If
+		Next
+	End If
+	CBUSelectTariff = false
+End Function
+
+Function CBUAddons(actionParam, addonParam)
+'''actionParam values: check/select/deactivate
+'''addonParam
+'''Function return values: true/false
+'a = CBUAddons("deactivate","Aylık Tekrar Eden Sosyal=Yeni Facebook Twitter-3GPRB078")
+Dim CfgMainFrame, addonParamArr, checkAddon, selectAddon, deactivateAddon, param, value, acitonResult, addonsCount
+
+If actionParam = "" or IsEmpty(actionParam) Then
+	Reporter.ReportEvent micFail, "actionParam is empty",""
+	CBUAddons = false
+	Exit Function
+End If
+actionParam = UCase(actionParam)
+
+Set MainFrame = MainFrameObject
+If MainFrame is Nothing Then
+	CBUAddons = false
+	Exit Function
+End If
+
+addonParamArr = split(addonParam,";")
+For i = 0 To UBound(addonParamArr) Step 1
+	
+	paramsArr = split(addonParamArr(i),"=")
+	param = trim(paramsArr(0))
+	value = trim(paramsArr(1))
+	
+	Set addonObj = GetHtmlSelectInputObjectByDisplayName(MainFrame, param)
+	If addonObj is Nothing Then
+		ERRORTEXT = param & " html Select or Input tag not found"
+		Reporter.ReportEvent micFail, ERRORTEXT,"", Takescreenshot
+		CBUAddons = false
+		Exit Function
+	End If
+	
+	If actionParam = "SELECT" Then
+	
+		acitonResult = CBUSelectAddon (param, value, addonObj)
+		
+	ElseIf actionParam = "CHECK" Then
+		
+		addonsCount = CBUCheckAddon (param, value, addonObj)
+'		acitonResult = false
+'		If IsNumeric(addonsCount) Then
+'			acitonResult = true
+'		End If
+		
+	ElseIf actionParam = "DEACTIVATE" Then
+	
+		acitonResult = CBUDeactivateAddon (param, value, addonObj)
+		
+	End If
+	
+	CBUAddons = acitonResult
+Next
+
+End Function
+Function MainFrameObject()
+	Dim CfgMainFrame
+	Set CfgMainFrame = Browser("creationtime:=0").Page("title:=.*").Frame("name:=CfgMainFrame")
+	If CfgMainFrame.Exist Then
+		Set MainFrameObject = CfgMainFrame
+	Else
+		Reporter.ReportEvent micFail, "CfgMainFrame not exist","" 
+		Takescreenshot
+		SetError "CfgMainFrame not exist"
+		Set MainFrameObject = Nothing
+	End If
+End Function
+Function CBUSelectAddon(param, value, addonObj)
+
+Dim selected, actionParam
+actionParam = "SELECT"
+
+selected = CheckSelectObject(addonObj, actionParam, param, value)
+If Not selected Then
+	CBUSelectAddon = false
+	Exit Function
+End If
+If UCase(addonObj.tagname) = "SELECT" Then
+	Set parentTableObj = GetParentObject(addonObj, "table")
+	Set kalemEkleObj = parentTableObj.getelementsbytagname("a")
+	If kalemEkleObj.length = 0 Then
+		SetError "Kalem Ekle link click fail"
+		Reporter.ReportEvent micFail, ERRORTEXT,"", Tackescreenshot
+		completed = false
+	ElseIf kalemEkleObj.length = 1 and Ucase(kalemEkleObj.item(0).innertext) = Ucase("Kalem Ekle") Then
+		SiebelHandler
+		kalemEkleObj.item(0).click
+		TerminateProccess "wscript.exe"
+		
+		Set MainFrame = MainFrameObject
+		If MainFrame is Nothing Then
+			CBUSelectAddon = false
+			Exit Function
+		End If
+		
+		If MainFrame.WebTable("html id:=CfgErrorMessageSpan").Exist(2) Then
+			SetError "Warning on "& addonObj.tagname &" "& param &" selected "& selected & " error: "& MainFrame.WebTable("html id:=CfgErrorMessageSpan").getroproperty("innertext")
+			MainFrame.Link("text:=Devam Et()|Proceed").Click
+			Reporter.ReportEvent micWarning, param &" selected "& selected & " error: "& ERRORTEXT,"", Tackescreenshot
+		End If
+		If MainFrame.Link("text:=Devam Et()|Proceed").Exist(1) Then
+			MainFrame.Link("text:=Devam Et()|Proceed").Click
+		End If
+		
+	''Check if selected-----------------------------
+		Set MainFrame = MainFrameObject
+		If MainFrame is Nothing Then
+			CBUSelectAddon = false
+			Exit Function
+		End If
+		Set obj = GetHtmlSelectInputObjectByDisplayName(MainFrame, param)
+		Set parentTableObj = GetParentObject(obj, "table")
+		Set sObj = parentTableObj.parentelement.nextsibling.getElementsByTagName("tbody")
+		Set sObj = parentTableObj.parentelement.nextsibling.getElementsByTagName("tbody").item(sObj.length-1)
+		Set sObj = sObj.getElementsByTagName("td")
+		selected = false
+		For i = 0 To sObj.length - 1 Step 1
+			If InStr(1,sObj.item(i).innertext, value)>0 Then
+				selected = true
+				Exit For
+			End If
+		Next
+		If selected Then
+			Reporter.ReportEvent micPass, value &" selected",""
+		Else
+			SetError value &" seçilemedi"
+			Reporter.ReportEvent micFail, value &" not selected","", Takescreenshot
+		End If
+		CBUSelectAddon = selected
+'				If Browser("Siebel Call Center").Dialog("Message from webpage").Exist(2) Then
+'					ERRORTEXT = Browser("Siebel Call Center").Dialog("Message from webpage").GetVisibleText
+'					Reporter.ReportEvent micFail, ERRORTEXT,""', Takescreenshot
+''					Browser("Siebel Call Center").Dialog("Message from webpage").WinButton("OK").Click
+'					completed = false
+'				End If
+	Else
+		SetError "More than 1 ""Kalem Ekle"" link found"
+		Reporter.ReportEvent micFail, ERRORTEXT, "", Takescreenshot
+		CBUSelectAddon = false
+	End If
+End If
+End Function
+Function CBUDeactivateAddon(param, value, addonObj)
+	
+Dim selected, actionParam
+'actionParam = "DEACTIVATE"
+
+If UCase(addonObj.tagname) = "SELECT" Then
+	Set parentTableObj = GetParentObject(addonObj, "table")
+'	Set kalemEkleObj = parentTableObj.getelementsbytagname("a")
+'	If kalemEkleObj.length = 0 Then
+'		ERRORTEXT = "Kalem Ekle link click fail"
+'		Reporter.ReportEvent micFail, ERRORTEXT,"", Tackescreenshot
+'		completed = false
+'	Else'If kalemEkleObj.length = 1 and Ucase(kalemEkleObj.item(0).innertext) = Ucase("Kalem Ekle") Then
+		
+	''Check if selected-----------------------------
+		Set MainFrame = MainFrameObject
+		If MainFrame is Nothing Then
+			CBUDeactivateAddon = false
+			Exit Function
+		End If
+		Set obj = GetHtmlSelectInputObjectByDisplayName(MainFrame, param)
+		Set parentTableObj = GetParentObject(obj, "table")
+		Set sObj = parentTableObj.parentelement.nextsibling.getElementsByTagName("tbody")
+		Set sObj = parentTableObj.parentelement.nextsibling.getElementsByTagName("tbody").item(sObj.length-1)
+		Set sObj = sObj.getElementsByTagName("td")
+		
+		selected = false
+		For i = 0 To sObj.length - 1 Step 1
+			If InStr(1,sObj.item(i).innertext, value) > 0 Then
+				selected = true
+				Set imgParentObj = GetParentObject(sObj.item(i), "tbody")
+				Set imgObj = imgParentObj.getElementsByTagName("img")
+				For j = 0 To imgObj.length - 1 Step 1
+					print imgObj.item(j).title
+					If imgObj.item(j).title = "Kaldır" Then
+						imgObj.item(j).click
+						
+						Set MainFrame = MainFrameObject
+						If MainFrame is Nothing Then
+							CBUDeactivateAddon = false
+							Exit Function
+						End If
+						If MainFrame.WebTable("html id:=CfgErrorMessageSpan").Exist(2) Then
+							SetError "Warning on "& addonObj.tagname &" "& param &" selected "& selected & " error: "& MainFrame.WebTable("html id:=CfgErrorMessageSpan").getroproperty("innertext")
+							MainFrame.Link("text:=Devam Et()|Proceed").Click
+							Reporter.ReportEvent micWarning, param &" selected "& selected & " error: "& ERRORTEXT,"", Tackescreenshot
+						End If
+						If MainFrame.Link("text:=Devam Et()|Proceed").Exist(1) Then
+							MainFrame.Link("text:=Devam Et()|Proceed").Click
+						End If
+					End If
+				Next
+				Exit For
+			End If
+		Next
+		If selected Then
+			Reporter.ReportEvent micPass, value &" deactivated",""
+		Else
+			SetError value &" deactivate fail"
+			Reporter.ReportEvent micFail, ERRORTEXT,"", Takescreenshot
+		End If
+		CBUDeactivateAddon = selected
+'	End If
+End If
+End Function
+Function CBUCheckAddon(param, value, addonObj)
+	
+Dim selected, actionParam, addonCount
+
+'If UCase(addonObj.tagname) = "SELECT" Then
+	Set parentTableObj = GetParentObject(addonObj, "table")
+'	Set kalemEkleObj = parentTableObj.getelementsbytagname("a")
+'	If kalemEkleObj.length = 0 Then
+'		ERRORTEXT = "Kalem Ekle link click fail"
+'		Reporter.ReportEvent micFail, ERRORTEXT,"", Tackescreenshot
+'		completed = false
+'	Else'If kalemEkleObj.length = 1 and Ucase(kalemEkleObj.item(0).innertext) = Ucase("Kalem Ekle") Then
+	
+'		If MainFrame.WebTable("html id:=CfgErrorMessageSpan").Exist(2) Then
+'			ERRORTEXT = ERRORTEXT & vbNewLine &"Warning on "& addonObj.tagname &" "& param &" selected "& selected & " error: "& MainFrame.WebTable("html id:=CfgErrorMessageSpan").getroproperty("innertext")
+'			MainFrame.Link("text:=Devam Et()|Proceed").Click
+'			Reporter.ReportEvent micWarning, param &" selected "& selected & " error: "& ERRORTEXT,"", Tackescreenshot
+'		End If
+'		If MainFrame.Link("text:=Devam Et()|Proceed").Exist(1) Then
+'			MainFrame.Link("text:=Devam Et()|Proceed").Click
+'		End If
+		
+	''Check if selected-----------------------------
+		Set MainFrame = MainFrameObject
+		If MainFrame is Nothing Then
+			CBUCheckAddon = null
+			Exit Function
+		End If
+		Set obj = GetHtmlSelectInputObjectByDisplayName(MainFrame, param)
+		Set parentTableObj = GetParentObject(obj, "table")
+		Set sObj = parentTableObj.parentelement.nextsibling.getElementsByTagName("tbody")
+		Set sObj = parentTableObj.parentelement.nextsibling.getElementsByTagName("tbody").item(sObj.length-1)
+		Set sObj = sObj.getElementsByTagName("td")
+		
+		selected = false
+		addonCount = 0
+		For i = 0 To sObj.length - 1 Step 1
+			If InStr(1,sObj.item(i).innertext, value) > 0 Then
+				selected = true
+				addonCount = addonCount + 1
+			End If
+		Next
+		If selected Then
+			Reporter.ReportEvent micPass, addonCount &" "& value &" addon active",""
+		Else
+			SetError value &" active not found"
+			Reporter.ReportEvent micFail, ERRORTEXT,"", Takescreenshot
+		End If
+		CBUCheckAddon = selected
+'	End If
+'End If
+End Function
+'''======================================================
+
+
+Function ChangeMsisdnXLMTibcoControl(orderId)
+
+	result = false
+
+	orderId = "OSM_"+ osm_id+"%"
+	
+	Set XmlDoc = CreateObject("Msxml2.DOMDocument.6.0")
+	
+	gun=day(Now())
+	
+	ay=Month(Now())
+	
+	yil=Year(Now())
+	
+	If gun < 10 Then
+	    gun = "0" & gun
+	End If
+	
+	If ay < 10 Then
+	    ay = "0" & ay
+	End If
+	
+	sqlQuery="select "&_
+	"  em.MESSAGE_BODY "&_
+	"  from eai_log partition (EAI_LOG_"&yil&""&ay&""&gun&") el, EAI_MESSAGE partition  (EAI_MESSAGE_"&yil&""&ay&""&gun&") em "&_
+	"  where 1=1 "&_
+	"  and el.EAI_MESSAGE_ID = em.EAI_MESSAGE_ID (+) "&_
+	"  and el.MSG_ID like '"&osm_id&"'  "&_
+	"  and EL.OPERATION like '%SynchronizeEntities%'  and TASK='START INTERFACE' "&_
+	"  order by "&_
+	"  el.CREATION_DATE asc" 
+	
+	xml=DBSelect ("TIBCO", ENV, sqlQuery)
+	
+	XmlDoc.loadXML(xml)
+	
+	Set NodeList = XmlDoc.GetElementsByTagName("*") 
+	For i = 0 To NodeList.length - 1
+		Set node = NodeList.item(i)
+		If node.baseName = "subscriber" Then
+			Set SubscriberNode = node
+			Exit For
+		End If
+	Next
+	
+	If Not IsEmpty(SubscriberNode) Then
+		Set childList = SubscriberNode.childNodes
+		If childList.length <> 0 Then
+			operationType = ""
+			vfcid = ""
+			reason= ""
+			For i = 0 To childList.length - 1
+				Set node = childList.item(i)
+				If Ucase(node.baseName) = Ucase("operationType") Then
+					operationType = node.text
+				End If
+				If Ucase(node.baseName) = Ucase("reason") Then
+					reason = node.text
+				End If
+			Next
+			
+			If operationType = "NUMARA_DEGISIKLIGI" Then
+				reporter.ReportEvent micPass ,"ChangeMsisdnXLMTibcoControl operationType","operationType = "& operationType
+				If reason="" Then
+					reporter.ReportEvent micPass,"reason", "reason = "& reason
+					result = true
+				Else
+					reporter.ReportEvent micFail,"ChangeMsisdnXLMTibcoControl","Fail reason = "& reason
+					result = false
+				End If
+			Else
+				reporter.ReportEvent micFail, "ChangeMsisdnXLMTibcoControl operationType","Fail operationType = "& operationType
+				result = false
+			End If
+		Else
+	'		''Reporter.ReportEvent micFail,"<Customer> tag bulunamadı",""
+	'		print "<subscriber> tag altında node yok"
+	'		ExitTest
+		End If
+	Else
+'		''Reporter.ReportEvent micFail,"<Customer> tag bulunamadı",""
+'		print "<subscriber> tag bulunamadı"
+'		ExitTest
+	End If
+		
+	Set childList = nothing
+	Set node = nothing
+	Set customerNode = nothing
+	Set NodeList = nothing
+	Set XmlDoc = nothing
+	
+	ChangeMsisdnXLMTibcoControl = result
+End Function
+
+Function AddonConfig(addons)
+'	result = ""
+'	addonsArr = split(addons, ",")
+'	For i = 0 To UBound(addonsArr) Step 1
+'		addonsArr(i) = trim(addonsArr(i))
+'		query = "SELECT	p.PARTNUMBER, decode(p.REL_NAME_TRK, null, p.RELATIONSHIP_NAME), p.UI_TAB_TRK, p.PROD_TRANSLATED_NAME_TRK FROM DHB_MV_ALL_PRODUCTS_CBU p WHERE 1=1	AND p.X_VF_PRODUCT_GROUP = 'ADDON' AND p.UI_TAB_TRK IS NOT NULL AND (p.PARTNUMBER = '"& addonsArr(i) &"' or p.PROD_TRANSLATED_NAME_TRK = '"& addonsArr(i) &"')"
+'		Set recSet = CreateObject("ADODB.Recordset")
+'		DBVTASRecordSet query, recSet
+'		If recSet is Nothing Then
+'			ERRORTEXT = addonsArr(i) &" AddOn query error: "& query
+'			Reporter.ReportEvent micFail, ERRORTEXT, ""
+'			
+'		End If
+'		If recSet.EOF Then
+'			ERRORTEXT = addonsArr(i) &" AddOn not found: "& query
+'			Reporter.ReportEvent micFail, ERRORTEXT, ""
+'			
+'		End If
+'		partNum = recSet.Fields("PARTNUMBER").Value
+'		tabName = recSet.Fields("UI_TAB_TRK").Value
+'		addonHead = recSet.Fields("REL_NAME_TRK").Value
+'		addonName = recSet.Fields("PROD_TRANSLATED_NAME_TRK").Value
+'		
+''		addonsArr(i) = tabName &"="& addonHead &"="& addonName
+'		
+'		result =  result &","& tabName &"="& addonHead &"="& addonName	
+'	Next
+'	result = Mid(result,2)
+	result = ""
+	addonsArr = split(addons, ",")
+	ReDim resultArr(UBound(addonsArr), 3)
+	For i = 0 To UBound(addonsArr) Step 1
+		addonsArr(i) = trim(addonsArr(i))
+		query = "SELECT	p.PARTNUMBER, decode(p.REL_NAME_TRK, null, p.RELATIONSHIP_NAME,p.REL_NAME_TRK) as REL_NAME, p.UI_TAB_TRK, p.PROD_TRANSLATED_NAME_TRK FROM EXT_USR.DHB_CBU_PRODUCTS p WHERE 1=1 AND p.UI_TAB_TRK IS NOT NULL AND (p.PARTNUMBER = '"& addonsArr(i) &"' or p.PROD_TRANSLATED_NAME_TRK = '"& addonsArr(i) &"' or p.LEGACY_ID = '"& addonsArr(i) &"' or p.COMMERCIAL_PROD_NAME = '"& addonsArr(i) &"')"
+'		AND p.X_VF_PRODUCT_GROUP = 'ADDON'
+		Set recSet = CreateObject("ADODB.Recordset")
+		DBRecordSet "SIEBEL", Env, query, recSet
+		If recSet is Nothing Then
+			ERRORTEXT = addonsArr(i) &" AddOn query error: "& query
+			Reporter.ReportEvent micFail, ERRORTEXT, ""
+			AddonConfig = empty
+			Exit Function
+		End If
+		If recSet.EOF Then
+			ERRORTEXT = addonsArr(i) &" AddOn not found: "& query
+			Reporter.ReportEvent micFail, ERRORTEXT, ""
+			AddonConfig = empty
+			Exit Function
+		End If
+		partNum = recSet.Fields("PARTNUMBER").Value
+		tabName = recSet.Fields("UI_TAB_TRK").Value
+		addonHead = recSet.Fields("REL_NAME").Value
+		addonName = recSet.Fields("PROD_TRANSLATED_NAME_TRK").Value
+		
+		Reporter.ReportEvent micDone, "Addon: "& partNum &vbTab& tabName &vbTab& addonHead &vbTab& addonName, ""
+		
+		resultArr(i,0) = partNum
+		resultArr(i,1) = tabName
+		resultArr(i,2) = addonHead
+		resultArr(i,3) = addonName
+'		Browser("Siebel Call Center").Page("Siebel Call Center").Frame("CfgMainFrame Frame").Link("text:="& tabName)
+'		ActionResult = RunAction ("CBUAddonsAction [CBUAddonsAction]", oneIteration, addonHead &"="& addonName)
+'		If Not ActionResult Then
+'			ExitAction(False)
+'		End If
+'		addonsArr(i) = tabName &"="& addonHead &"="& addonName
+'		result =  result &","& tabName &"="& addonHead &"="& addonName	
+	Next
+'	result = Mid(result,2)
+	AddonConfig = resultArr
+
+End Function
+Function ServicesConfig(srv)
+	result = ""
+	addonsArr = split(addons, ",")
+	ReDim resultArr(UBound(addonsArr), 3)
+	For i = 0 To UBound(addonsArr) Step 1
+		addonsArr(i) = trim(addonsArr(i))
+		query = "SELECT	p.PARTNUMBER, decode(p.REL_NAME_TRK, null, p.RELATIONSHIP_NAME,p.REL_NAME_TRK) as REL_NAME, p.UI_TAB_TRK, p.PROD_TRANSLATED_NAME_TRK FROM EXT_USR.DHB_CBU_PRODUCTS p WHERE 1=1 AND p.UI_TAB_TRK IS NOT NULL AND (p.PARTNUMBER = '"& addonsArr(i) &"' or p.PROD_TRANSLATED_NAME_TRK = '"& addonsArr(i) &"')"
+'		AND p.X_VF_PRODUCT_GROUP = 'ADDON' 
+		Set recSet = CreateObject("ADODB.Recordset")
+		DBVTASRecordSet query, recSet
+		If recSet is Nothing Then
+			ERRORTEXT = addonsArr(i) &" AddOn query error: "& query
+			Reporter.ReportEvent micFail, ERRORTEXT, ""
+			AddonConfig = empty
+			Exit Function
+		End If
+		If recSet.EOF Then
+			ERRORTEXT = addonsArr(i) &" AddOn not found: "& query
+			Reporter.ReportEvent micFail, ERRORTEXT, ""
+			AddonConfig = empty
+			Exit Function
+		End If
+		partNum = recSet.Fields("PARTNUMBER").Value
+		tabName = recSet.Fields("UI_TAB_TRK").Value
+		addonHead = recSet.Fields("REL_NAME").Value
+		addonName = recSet.Fields("PROD_TRANSLATED_NAME_TRK").Value
+		
+		resultArr(i,0) = partNum
+		resultArr(i,1) = tabName
+		resultArr(i,2) = addonHead
+		resultArr(i,3) = addonName
+'		Browser("Siebel Call Center").Page("Siebel Call Center").Frame("CfgMainFrame Frame").Link("text:="& tabName)
+'		ActionResult = RunAction ("CBUAddonsAction [CBUAddonsAction]", oneIteration, addonHead &"="& addonName)
+'		If Not ActionResult Then
+'			ExitAction(False)
+'		End If
+'		addonsArr(i) = tabName &"="& addonHead &"="& addonName
+'		result =  result &","& tabName &"="& addonHead &"="& addonName	
+	Next
+'	result = Mid(result,2)
+	AddonConfig = resultArr
+
+End Function
+ 
+Function RecoveryFunction1(Object)
+	Dim filename,count,i,reporterfilter
+	On Error Resume Next
+	reporterfilter = Reporter.Filter
+	Reporter.Filter = rfDisableAll
+	filename = ""
+	Set oDesc = Description.Create
+	oDesc( "micclass" ).Value = "Browser"
+	count = Desktop.ChildObjects(oDesc).Count
+	If count > 0 Then
+		For i = 0 To count - 1 Step 1
+			filename = Folder &"\pic"& DatePart("d",Now()) & DatePart("m",Now()) &DatePart("yyyy",Now()) & "_" & DatePart("h",Now()) & DatePart("n",Now()) & DatePart("s",Now()) &".png"
+			Browser("creationtime:="& i).CaptureBitmap filename
+			Reporter.ReportEvent micDone,"Browser ekrangörüntüsü "& i + 1, "", filename
+'			filename = Folder &"\pic"& DatePart("d",Now()) & DatePart("m",Now()) &DatePart("yyyy",Now()) & "_" & DatePart("h",Now()) & DatePart("n",Now()) & DatePart("s",Now()) &".png"
+		Next
+'	Else
+'		Desktop.CaptureBitmap filename
+'		Reporter.ReportEvent micDone,"Açık browser yok. Masaüstü ekrangörüntüsü", filename
+	End If
+	
+	filename = Folder &"\pic"& DatePart("d",Now()) & DatePart("m",Now()) &DatePart("yyyy",Now()) & "_" & DatePart("h",Now()) & DatePart("n",Now()) & DatePart("s",Now()) &".png"
+	Desktop.CaptureBitmap filename
+	Reporter.ReportEvent micDone,"Masaüstü ekrangörüntüsü", filename
+	
+	Reporter.Filter = reporterfilter
+	On Error Goto 0
+End Function 
+ 
+ 
+'''''//////////////////////////////////////////////////////////////////////////////////
+'''''Example 1: get created and not used MSISDN by customer type EBU/CBU, requested by. Env global, RequestedBy can be global value or specific, if set empty take global RequetedBy
+'''''GetMsisdn("EBU"), GetMsisdn("EBU", RequestedBy), GetMsisdn("CBU", "OTO")
+'''''If empty no data in DB
+'''''If not empty automatically set USED = 'Y'
+'msisdn = GetMsisdn("EBU", RequestedBy)
+'If IsEmpty(msisdn) Then
+'	
+'End If
+'
+'''''//////////////////////////////////////////////////////////////////////////////////
+'''''Example 2 and Example 3 get all columns and rows.
+'''''Mandotary to set USED = 'Y' for used data
+''
+''			Set recSet = CreateObject("ADODB.Recordset")
+''			GetData "EBU", RequestedBy, recSet
+''			If IsEmpty(recSet) Then
+''				'''Sql wrong or empty
+''			End If
+''			
+''			'''Example 2: get any column value by name
+''			reqId = recSet.Fields("REQUEST_ID").Value
+''			msisdn = recSet.Fields("GSM_NO").Value
+''			customerNo = recSet.Fields("MUSTERI_NO").Value
+''			
+''			query = "update EBU_MOBILE_LINES set used = 'Y' where gsm_no = '"& msisdn &"' and env = '"& ENV &"' and REQUEST_ID = '"& reqId &"' and arayuz = '"& Interface &"'"
+''			'query = "update CBU_MOBILE_LINES set used = 'Y' where gsm_no = '"& msisdn &"' and env = '"& ENV &"' and REQUEST_ID = '"& reqId &"' and arayuz = '"& Interface &"'"
+''			DBVTASExecute query
+''
+'''''Example 3: get all rows any column value by name
+''			recSet.MoveFirst
+''			For i = 1 To recSet.RecordCount Step 1
+''				msisdn = recSet.Fields("GSM_NO").Value
+''				customerNo = recSet.Fields("MUSTERI_NO").Value
+''				
+''				query = "update EBU_MOBILE_LINES set used = 'Y' where gsm_no = '"& msisdn &"' and env = '"& ENV &"' and REQUEST_ID = '"& reqId &"' and arayuz = '"& Interface &"'"
+''				'query = "update CBU_MOBILE_LINES set used = 'Y' where gsm_no = '"& msisdn &"' and env = '"& ENV &"' and REQUEST_ID = '"& reqId &"' and arayuz = '"& Interface &"'"
+''				DBVTASExecute query
+''				
+''				recSet.MoveNext
+''			Next
+'''''//////////////////////////////////////////////////////////////////////////////////
+
+
+Function CreateIMEI(campaignCode,handsetCode,env)
+'' 1-) IMEI Yaratılır, 
+'' 2-) ccb_handset_camp_imei tablosunda oluşan IMEI var mı, yok mu kontrolü yapılır.
+'' 3-) Yok ise tabloya insert eder. Mevcut ise olmayanı bulana kadar fonksiyon döner. 
+'' 4-) Oluşan IMEI, "IMEI" parametresinde tutulur. 
+	Do
+		Randomize
+        imei =  CStr(Int((351399999999999-351300000000000)*Rnd)+351300000000000)'CStr(Int((350199999999999-350100000000000)*Rnd)+350100000000000)
+    	query =  "select count(*) from ccb.ccb_handset_camp_imei where imei = '" & imei & "'" 
+		count = CInt(DBSelect( "CCB", env, query))
+		If IsEmpty(count) Then
+			ExitAction false
+		End If
+	Loop While count > 0
+
+	query = "INSERT INTO CCB.CCB_HANDSET_CAMP_IMEI (IMEI, CAMPAIGN_CODE, SHOP_CODE, HANDSET_CODE, STATUS, CAMPAIGN_START_DATE, " & _
+	"GSM_NO, START_DATE, CR_USER, CR_DATE, UPD_USER, UPD_DATE, UPD_SEQ, PAY_TYPE, PAY_INDEX, " & _ 
+    "VOUCHER, USED_BY)" & _
+    "Values ('" & imei & "', '" & campaignCode & "', NULL, '" & handsetCode & "', 'P', NULL, NULL, NULL, 'OTOMASYON', sysdate, 'OTOMASYON', sysdate, 0, NULL, NULL, NULL, NULL) "
+		
+	execResult = DBExecute ("CCB", ENV, query)
+	If Not execResult Then
+		ERRORTEXT = "IMEI="&IMEI&". CCB.CCB_HANDSET_CAMP_IMEI te Insert Edilemedi"
+		Reporter.ReportEvent micFail,"IMEI="&IMEI&". CCB.CCB_HANDSET_CAMP_IMEI Insert Edilemedi",""
+		imei = empty
+	Else
+'		ERRORTEXT = "IMEI="&IMEI&". CCB.CCB_HANDSET_CAMP_IMEI te Insert Edildi"
+		Reporter.ReportEvent micPass,"IMEI="&IMEI&". CCB.CCB_HANDSET_CAMP_IMEI Insert Edildi",""
+	End If
+	
+	CreateIMEI = imei
+	
+End Function
+
+Function fnCheckSiebelErrorMsgBox(exitFlag)
+	If Browser("Siebel Call Center").Dialog("Message from webpage").Static("MessageBox").Exist(30) Then
+		msg=Browser("Siebel Call Center").Dialog("Message from webpage").Static("MessageBox").GetROProperty("text")
+		If exitFlag Then
+			Reporter.ReportEvent micFail, "Error Message", msg, TakeScreenshot
+			fnPrint "Error Message: "& msg
+			'Browser("Siebel Call Center").Dialog("Message from webpage").WinButton("OK").regobjClick
+			ExitTest
+		Else
+			Reporter.ReportEvent micDone ,"Info Message", msg, TakeScreenshot
+			fnPrint "Info Message: "& msg
+			Browser("Siebel Call Center").Dialog("Message from webpage").WinButton("OK").regobjClick
+		End If	
+	End If
+
+End Function
+
+Function fnPrint(text)
+	Print now()& "-->"&text
+End Function

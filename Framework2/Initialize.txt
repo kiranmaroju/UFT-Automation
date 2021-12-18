@@ -1,0 +1,227 @@
+'Dim  StartTime,TCName,MachineName, EnviVarPath
+Dim  Pass_Count, Fail_Count, sNo, Capture_Count, Results, ResultFolder, ResultFolderPath,  sScreenshotPath
+Public vbsJsonFilePath
+Public g_GLOBAL_WORKBOOK
+Public g_GLOBAL_SHEET
+Public g_GLOBAL_EXCEL
+Public g_GLOBAL_FSO
+Public g_GLOBAL_HTML
+
+'Public g_GLOBAL_HTML
+vbsJsonFilePath="\\172.31.70.34\Users\test.auto.sat\Desktop\UFT_Automation\Libraries\VbsJson.txt"
+Function fnQTPSettings()
+   	On Error Resume Next
+   	Set QTP = CreateObject("QuickTest.Application") 
+   	QTP.Options.Run.EnableRdp = True
+	QTP.Options.Run.RdpUserName = "vftr\test.auto.sat"
+	QTP.Options.Run.RdpPasswordEncrypted = "5f886f9dadaaa7f08cfd435ec3f536df2180bd8a398dc6e9bd6185f40d5fc3d2cb0b5cd7ac9847760292f6db3ad0022379fcd6aec0ef94631c45"
+	QTP.Test.Settings.Run.IterationMode = "oneIteration"                         'Run only one iteration
+	'QTP.Test.Settings.Run.DisableSmartIdentification = True
+	Print "------------------Test Params--------------"
+	Set QTPparams= QTP.Test.ParameterDefinitions.GetParameters()	
+	For param = 1 To QTPparams.Count
+		Print QTPparams.Item(param).Name &"-->"& QTPparams.Item(param).Value		
+	Next
+	actionsCount=QTP.Test.Actions.Count
+	
+	For act = 1 To actionsCount
+		actionName=QTP.Test.Actions.Item(act).Name
+		Print "------------------"&actionName&" Params--------------"
+		Set QTPActionparams=QTP.Test.Actions.Item(act).ActionParameterDefinitions.GetParameters()
+		For actParam = 1 To QTPActionparams.Count
+			Print QTPActionparams.Item(actParam).Name &"-->"& QTPActionparams.Item(actParam).Value		
+		Next
+	Next
+	
+	
+	
+	'QTPparams.GetParameters().Item(“WhatsYourName”).Value
+'	QTP.Test.Settings.Resources.Libraries.RemoveAll
+'	QTP.Test.Settings.Resources.Libraries.Add("[ALM\Resources] Resources\Qlik_Automation\Initialise")
+'	QTP.Test.Settings.Resources.Libraries.Add("[ALM\Resources] Resources\Qlik_Automation\CommonFunctions")
+'	QTP.Test.Settings.Resources.Libraries.Add("[ALM\Resources] Resources\Qlik_Automation\CoreFunctions")
+	On Error GoTo 0
+End Function
+
+Function fnInitializeScript()
+	Call fnQTPSettings
+	
+	'	ExecuteFile ResourcePath & "CommonFunctions"
+	'	ExecuteFile ResourcePath & "CoreFunctions"
+	SystemUtil.CloseProcessByName("chrome.exe")
+	SystemUtil.CloseProcessByName("iexplore.exe")
+	'SystemUtil.CloseProcessByName("DontSleep.exe")
+	
+	
+	Dim htmlReport
+	
+	
+'	Environment.Value("Qlik_URL") =  "https://qlikstg.utc.com/"	
+	Environment.Value("Application")    =   "VFTR"           ' Application name 
+	Environment.Value("ApplicationVersion")   = "Release 94(Aug-10th 2020)"               ' Application Version
+	Environment.Value("ApplicationEnvironment")    =   "AMSAT"    	'  Application Environment        
+
+
+
+	Environment.Value("HTMLFont") ="Century"
+	Environment.Value("HTMLColor")="RED" 
+	Environment.Value("FontColor")="BLACK"
+	'====================Script Initialization===================
+	TCName =     Environment.Value("TestName")
+	myLocale = SetLocale(16393) ' English-India
+	Set objQTApp = CreateObject("QuickTest.Application")
+	StrQCPath=objQTApp.Test.Location
+	
+	Set objQTApp=Nothing
+	strTestName = Environment.Value("TestName")
+	strTestPath = StrQCPath 	
+	strMainFolderPath= Mid(strTestPath, 1, Instr(1, strTestPath,strTestName)-1)
+	strMainFolderPath=Mid(strMainFolderPath, 1, InStrRev(strMainFolderPath, "\")-1)
+	strModuleName=Mid(strMainFolderPath,  InStrRev(strMainFolderPath, "\")+1)
+	
+	'=============Test Settings========
+	ResourcePath = "\\172.31.70.34\Users\test.auto.sat\Desktop\UFT_Automation\" '"[QualityCenter\Resources] Resources\UFT_Automation\"
+	Environment.Value("ResourcesPath")=ResourcePath
+	Environment.Value("FrameworkFolder") =   "\\172.31.70.34\Users\test.auto.sat\Desktop\UFT_Automation"                ' Framework Folder  
+	Environment.Value("QCResourcesPath")    = "[QualityCenter\Resources] Resources\UFT_Automation\"   
+	'ResourcePath=Environment.Value("QCResourcesPath")
+
+	SystemUser = fnGetSystemUserName()
+
+	'SystemUtil.Run Environment.Value("FrameworkFolder") & "\DontSleep.exe"
+
+	Environment.Value("OutputPath") = Environment.Value("FrameworkFolder") &"\Outputdata"
+	Environment.Value("InputDataPath") =   Environment.Value("FrameworkFolder") &"\Inputdata"               ' Inputdata Folder 
+	
+	
+	
+	
+	
+	Environment.Value("TimeStamp")= Right("0" & Hour(Time),2)&Right("0" & Minute(Time),2) &Right("0" & Second(Time),2)'  fHour & fMinute & fSecond
+	
+	'==================
+	StartTime= Now                                                                                                        ' Test case Execution Start Time
+	 
+	MachineName= Environment.Value("LocalHostName")  
+	
+	'=====================Load Repository File===============================
+	strRepoPath = Environment.Value("ResourcesPath") & "Qlik-OR.tsr"
+	
+	'Environment.Value("dbPath")="D:\Qlik-Automation\InputData\Qlik-POC.accdb"
+	'RepositoriesCollection.Add strRepoPath
+	'=====================Load Envornment File===============================	
+	'strResPath = Environment.Value("ResourcesPath") & "\Environment.xml"
+	'Environment.LoadFromFile(strResPath)
+	FrameworkFolder=Environment.Value("FrameworkFolder")                   ' Framework Folder    
+'	ApplicationPath=Environment.Value("Qlik_URL")                   ' Application URL
+'	Application=Environment.Value("Application")                   ' Application name 
+'	ApplicationVersion=Environment.Value("ApplicationVersion")                   ' Application Version
+'	ApplicationEnvironment=Environment.Value("ApplicationEnvironment")                   '  Application Environment         
+	QCResourcesPath=Environment.Value("QCResourcesPath")                   '  QC Resources path                       
+	
+	Environment.Value("Attachment")="Attachment Link"
+	Environment.Value("TestObjective")=""
+	Environment.Value("PreRequisites")=""
+	'===================Derive Folder Paths===================================
+	On Error resume next
+	var_connection = QCUtil.IsConnected
+	If var_connection = True Then
+		If QCUtil.CurrentTestSetTest is Nothing Then 
+			Else
+				Set CurrentTestSet = QCUtil.CurrentTestSet
+				TestSetName=Trim(CurrentTestSet.Name)		
+		End If 
+	End If
+	On Error Goto 0
+	'===============Load input data sheet=======================================
+	
+'	InputDataPath = Environment.Value("InputDataPath")
+'	InputBookPath = InputDataPath & "\" & TCName &".xlsx"                                       ' Test data Sheet = FrameWork\InputData\ModuleName\TCName.xls	
+'	Environment.Value("InputBookPath")= InputBookPath
+'	Set  FSO=CreateObject("Scripting.FilesystemObject")	
+'	If  FSO.FileExists(InputBookPath)Then
+'		Datatable.Import InputBookPath
+'		'DataTable.ImportSheet InputBookpath,"Test_Info","Action1"
+'		'DataTable.ImportSheet InputBookpath,"Test_Data","Global"
+'	End If	
+	'=================initialize variables========================================
+	Pass_Count = 0
+	Fail_Count= 0
+	sNo=0
+	Capture_Count=0
+	Environment.Value("sNo")=0
+	Environment.Value("Pass_Count")=0
+	Environment.Value("Warning_Count")=0
+	Environment.Value("Fail_Count")=0
+	Environment.Value("Capture_Count")=0	
+	Environment.Value("FailFlag")=False
+	'Environment.Value("sObjective")=Datatable.GetSheet("Action1").GetParameter("Value").ValueByRow(2)
+	'Environment.Value("sPreReq")=Datatable.GetSheet("Action1").GetParameter("Value").ValueByRow(3)
+	'=======================QTP General Settings====================================
+	'	Set QTP = CreateObject("QuickTest.Application") 	
+	'==============Create HTML Report Folder=================================
+	Set  FSO=CreateObject("Scripting.FilesystemObject")
+	
+	AllResults=FrameworkFolder  & "\Results"
+	Results= AllResults & "\"&Day(now)&"-"&Month (now)&"-"&Year(now) 
+	If Not FSO.FolderExists(Results)	 Then	
+		FSO.CreateFolder(Results)                                                       '							
+	End If
+	
+	
+	Results= Results & "\"& MachineName
+	If Not FSO.FolderExists(Results)	 Then	
+		FSO.CreateFolder(Results)                                                       '							
+	End If
+	
+	ResultFolder=Results & "\" & TCName
+	If Not FSO.FolderExists(ResultFolder)	 Then	
+		FSO.CreateFolder(ResultFolder)   '''-----------------------Creates Results\TCName Folder
+	End If
+	
+	
+	ResultFolderPath= ResultFolder&"\"&Day(now)&"-"&Month (now)&"-"&Year(now)   & "-" & Environment.Value("TimeStamp")  
+	Environment.Value("ResultFolderPath")=ResultFolderPath
+	Set FSO=CreateObject("Scripting.FilesystemObject")
+	If Not FSO.FolderExists(ResultFolderPath)	 Then	
+		FSO.CreateFolder(ResultFolderPath)   '''-----------------------Creates Results\TCName\<CurrentDate> Folder
+	End If
+	
+	htmlReport =ResultFolderPath&"\"&TCName&".html"                       ' HTML Report File path =Results\TCName\<CurrentDate>\TCName.html
+	Environment.Value("htmlReport")= htmlReport
+	sScreenshotPath=ResultFolderPath&"\Screenshots"
+	If Not FSO.FolderExists(sScreenshotPath)	 Then	
+		FSO.CreateFolder(sScreenshotPath)   '''-----------------------Creates Results\TCName\<CurrentDate>\Screenshots  Folder
+	End If
+	
+	
+	'===================Create HTML Report====================================
+	Set g_GLOBAL_FSO = CreateObject("Scripting.FileSystemObject")
+	Environment.Value("LogoPath")=ResultFolderPath &"\logo.jpg"
+	g_GLOBAL_FSO.CopyFile FrameworkFolder & "\Results" &"\logo.jpg", Environment.Value("LogoPath"), True
+
+	Call fnCreateHTML()
+	Call fnInsertHead(TCName)	
+
+End Function
+
+	
+Function fnAttachOR(PathOR)             
+	'RepositoriesCollection.RemoveAll	 
+	'RepositoriesCollection.Add PathOR                 ' Add Reporsitory from Object Repository Folder 
+End Function
+
+Function fnGetSystemUserName()
+	fnGetSystemUserName=  CreateObject("WScript.Network").UserName	
+End Function
+
+Function fnPrintError()
+	Print Now()&"->"& "Err Number:"&Err.Number &", Err.Description:"&Err.Description
+End Function
+
+ 
+Function RecoveryFunctionErrCheck(Object, Method, Arguments, retVal)
+Print "test"
+fnPrintError()
+End Function 
+ 
